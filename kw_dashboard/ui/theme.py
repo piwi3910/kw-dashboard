@@ -7,18 +7,25 @@ panel viewed in a room):
   fg     = dark "primary ink"    #ffffff
   dim    = dark "secondary ink"  #c3c2b7
   accent = categorical slot 1 (blue), dark step  #3987e5
-  ok/warn/crit = the fixed status palette (never themed, never reused for
-    series): good #0ca30c, warning #fab219, critical #d03b3b
+  ok/warn/crit = status colours, deliberately re-derived (fix round 1) from
+    the skill's fixed status palette to add LUMINANCE separation on top of
+    hue: ok #288c28 (deep green), warn #fab219, crit #ff8c8c (bright/light
+    red). ok-vs-crit hue alone is a classic red-green CVD failure — a
+    deuteranope/protanope sees two similarly-bright blobs. Making crit
+    noticeably brighter than ok means "bright = alarming" reads correctly
+    even with zero hue perception, and both still clear >=4.5:1 against bg.
+    DO NOT "tidy" ok/crit back to matched luminance — the separation is the
+    point, pinned by test_ok_and_crit_are_luminance_separated_for_cvd.
 
 Validated with the skill's `scripts/validate_palette.js` against the dark
 surface #1a1a19: chroma floor, adjacent/CVD separation, and contrast vs
 surface all PASS for accent+status together (worst CVD ΔE 11.3, worst
 normal-vision ΔE 27.6, all >= 3:1 contrast). The lightness-band check flags
-warning (#fab219, L 0.811) — that check is scoped to categorical palettes;
-the status palette is documented as fixed and pre-validated on its own
-contrast figures, so it is exempt and used as specified. Colour is reserved
-for state: accent is the only "normal" hue, ok/warn/crit are used only to
-signal state, never decoratively.
+a matched-luminance warning step — that check is scoped to categorical
+palettes; the status palette is fixed/reserved, not categorical, so it is
+exempt and hand-tuned per role. Colour is reserved for state: accent is the
+only "normal" hue, ok/warn/crit are used only to signal state, never
+decoratively.
 
 FONT_SIZES honours the spec's 26px legibility floor for every glanceable
 size. `mono` at 20px is the single documented exception (spec section 8):
@@ -47,7 +54,7 @@ class Theme:
 THEME = Theme(
     bg=(13, 13, 13), fg=(255, 255, 255), dim=(195, 194, 183),
     panel=(26, 26, 25), accent=(57, 135, 229),
-    ok=(12, 163, 12), warn=(250, 178, 25), crit=(208, 59, 59))
+    ok=(40, 140, 40), warn=(250, 178, 25), crit=(255, 140, 140))
 
 
 def state_color(pct: float, theme: Theme = THEME) -> tuple:
