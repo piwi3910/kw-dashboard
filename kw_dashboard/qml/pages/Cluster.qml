@@ -545,7 +545,7 @@ Item {
                         }
 
                         TapHandler {
-                            onTapped: bridge.pushView("node", { "node": row.node.name })
+                            onTapped: bridge.pushView("nodeDetail", { "node": row.node.name })
                         }
                     }
                 }

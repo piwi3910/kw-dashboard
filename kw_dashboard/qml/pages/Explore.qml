@@ -102,7 +102,7 @@ Item {
 
             MouseArea {
                 anchors.fill: parent
-                onClicked: bridge.pushView("namespace", {"ns": modelData.name})
+                onClicked: bridge.pushView("namespaceDetail", {"ns": modelData.name})
             }
         }
     }
