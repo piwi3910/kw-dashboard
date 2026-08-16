@@ -7,14 +7,26 @@ from .theme import THEME, state_color
 TOUCH_MIN_H = 60  # spec global constraint
 
 
+def _arc_ring(surf, center, radius, width, start_rad, end_rad, color, steps=64):
+    cx, cy = center
+    r_out, r_in = radius, radius - width
+    pts_out, pts_in = [], []
+    for i in range(steps + 1):
+        a = start_rad + (end_rad - start_rad) * i / steps
+        # pygame y grows downward, so negate the sine
+        pts_out.append((cx + r_out * math.cos(a), cy - r_out * math.sin(a)))
+        pts_in.append((cx + r_in * math.cos(a), cy - r_in * math.sin(a)))
+    pygame.draw.polygon(surf, color, pts_out + list(reversed(pts_in)))
+
+
 def draw_arc_gauge(surf, center, radius, pct, label, fonts, width=18):
     pct = min(100.0, max(0.0, pct))
     cx, cy = center
-    rect = pygame.Rect(cx - radius, cy - radius, radius * 2, radius * 2)
-    pygame.draw.arc(surf, THEME.panel, rect, math.radians(-215), math.radians(35), width)
-    end = math.radians(-215) + (math.radians(250) * pct / 100.0)
+    start, sweep_end = math.radians(-215), math.radians(35)
+    _arc_ring(surf, center, radius, width, start, sweep_end, THEME.panel)
+    end = start + (math.radians(250) * pct / 100.0)
     if pct > 0:
-        pygame.draw.arc(surf, state_color(pct), rect, math.radians(-215), end, width)
+        _arc_ring(surf, center, radius, width, start, end, state_color(pct))
     val = fonts["big"].render(f"{pct:.0f}%", True, THEME.fg)
     surf.blit(val, val.get_rect(center=(cx, cy - 6)))
     lab = fonts["small"].render(label, True, THEME.dim)

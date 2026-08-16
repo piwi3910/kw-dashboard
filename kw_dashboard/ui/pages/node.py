@@ -36,7 +36,7 @@ def render(surf, snap, nav, fonts, app):
 
     surf.blit(fonts["small"].render(f"{node.pods} pods", True, THEME.dim), (40, y + 6))
 
-    pods = sort_pods([p for p in getattr(snap, "pods", []) if p.node == name])[:5]
+    pods = sort_pods([p for p in snap.pods if p.node == name])[:5]
     y += 50
     for p in pods:
         rect = pygame.Rect(40, y, surf.get_width() - 80, TOUCH_MIN_H)
