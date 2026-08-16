@@ -41,6 +41,24 @@ def test_parse_pods_counts_ready_containers():
 def test_parse_pods_containers_listed_for_log_picker():
     assert parse_pods(PODS)[0].containers == ["app", "sidecar"]
 
+def test_succeeded_pod_is_healthy_even_with_zero_ready_containers():
+    # A Succeeded pod is a completed Job/CronJob run -- its expected end
+    # state, not a fault -- regardless of how many containers are ready.
+    p = PodInfo("done", "ns", "w", "Succeeded", 0, 1, 0, ["c"])
+    assert p.healthy is True
+
+def test_running_pod_with_unready_container_is_unhealthy():
+    p = PodInfo("p", "ns", "w", "Running", 0, 1, 0, ["c"])
+    assert p.healthy is False
+
+def test_pending_pod_is_unhealthy():
+    p = PodInfo("p", "ns", "w", "Pending", 0, 1, 0, ["c"])
+    assert p.healthy is False
+
+def test_failed_pod_is_unhealthy():
+    p = PodInfo("p", "ns", "w", "Failed", 0, 1, 0, ["c"])
+    assert p.healthy is False
+
 def test_parse_events_sorted_newest_first():
     ev = {"items": [
         {"metadata": {"name": "a"}, "type": "Normal", "reason": "Started",

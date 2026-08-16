@@ -29,6 +29,11 @@ class PodInfo:
 
     @property
     def healthy(self) -> bool:
+        # A Succeeded pod is a completed Job/CronJob -- its expected end state,
+        # not a fault. Counting it as unhealthy made almost every namespace
+        # render as critical on the live cluster.
+        if self.phase == "Succeeded":
+            return True
         return self.phase == "Running" and self.ready == self.total and self.total > 0
 
 
