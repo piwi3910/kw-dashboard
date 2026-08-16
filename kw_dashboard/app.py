@@ -1,7 +1,7 @@
 """pygame main loop on SDL2's KMSDRM backend. Renders from the collector's
 snapshot; never performs I/O on this thread."""
 from __future__ import annotations
-import os, time
+import logging, os, time
 import pygame
 from .config import Config
 from .nav import Nav, View, PAGES
@@ -26,7 +26,6 @@ class App:
         self.nav = Nav(cfg.rotate_seconds, cfg.touch_pause_seconds,
                        cfg.idle_reset_seconds)
         self.hits: list = []
-        self.log_stream = None
         self._alert_seen = False
 
     def _init_display(self):
@@ -61,30 +60,43 @@ class App:
         renderer = registry.get(view.kind)
         if renderer is None:
             return self.screen          # no pages registered yet (Tasks 13-15)
-        self.hits = renderer(self.screen, snap, self.nav, self.fonts, self) or []
+        try:
+            self.hits = renderer(self.screen, snap, self.nav, self.fonts, self) or []
+        except Exception:
+            # A broken page must not take down an unattended panel.
+            self.hits = []
+            logging.exception("page renderer failed: %s", view.kind)
         return self.screen
 
     def run(self):
         self._init_display()
         clock = pygame.time.Clock()
-        running = True
-        while running:
-            now = time.time()
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    running = False
-                elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
-                    running = False
-                elif ev.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
-                    if ev.type == pygame.FINGERDOWN:
-                        pos = (int(ev.x * self.cfg.width), int(ev.y * self.cfg.height))
-                    else:
-                        pos = ev.pos
-                    self._dispatch_touch(pos, now)
-            snap = self.collector.snapshot()
-            self._check_preemption(snap, now)
-            self.nav.tick(now)
-            self.render_once(snap)
-            pygame.display.flip()
-            clock.tick(self.cfg.fps)
-        pygame.quit()
+        try:
+            running = True
+            while running:
+                now = time.time()
+                for ev in pygame.event.get():
+                    if ev.type == pygame.QUIT:
+                        running = False
+                    elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
+                        running = False
+                    elif ev.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
+                        if ev.type == pygame.FINGERDOWN:
+                            cal = self.cfg.touch
+                            # SDL normalises finger coords to 0..1; project back onto the
+                            # configured raw range so swap/invert knobs actually apply.
+                            raw_x = cal.x_min + ev.x * (cal.x_max - cal.x_min)
+                            raw_y = cal.y_min + ev.y * (cal.y_max - cal.y_min)
+                            pos = cal.to_screen(int(raw_x), int(raw_y),
+                                                self.cfg.width, self.cfg.height)
+                        else:
+                            pos = ev.pos          # mouse in --windowed mode needs no calibration
+                        self._dispatch_touch(pos, now)
+                snap = self.collector.snapshot()
+                self._check_preemption(snap, now)
+                self.nav.tick(now)
+                self.render_once(snap)
+                pygame.display.flip()
+                clock.tick(self.cfg.fps)
+        finally:
+            pygame.quit()
