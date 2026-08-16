@@ -5,9 +5,10 @@ import "../"
 // The one deliberate exception to the 26px floor — mono/20px fits ~78
 // columns, and reading logs is a lean-in activity. Lines wrap, never scroll
 // horizontally.
-Item {
+Rectangle {
     id: root
     anchors.fill: parent
+    color: Theme.bg
 
     readonly property string ns: bridge.viewParams.ns || ""
     readonly property string podName: bridge.viewParams.pod || ""

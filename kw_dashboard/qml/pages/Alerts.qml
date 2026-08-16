@@ -3,9 +3,10 @@ import "../"
 
 // Alertmanager is the source of truth; this panel only shows what's firing
 // and can dismiss the on-screen takeover — it can never silence upstream.
-Item {
+Rectangle {
     id: root
     anchors.fill: parent
+    color: Theme.bg
 
     readonly property var alerts: bridge.alerts || []
     readonly property bool empty: alerts.length === 0
@@ -17,30 +18,13 @@ Item {
         return Theme.dim
     }
 
-    Text {
-        id: title
-        text: "ALERTS"
-        color: Theme.fgBright
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.body
-        font.bold: true
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.margins: 24
-    }
+    PageHeader {
+        id: header
+        title: "ALERTS"
+        rightText: Qt.formatTime(new Date(), "hh:mm")
 
-    Text {
-        id: clock
-        color: Theme.dim
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.body
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: 24
-
-        function refresh() { text = Qt.formatTime(new Date(), "hh:mm") }
-        Component.onCompleted: refresh()
-        Timer { interval: 1000; running: true; repeat: true; onTriggered: clock.refresh() }
+        function refresh() { rightText = Qt.formatTime(new Date(), "hh:mm") }
+        Timer { interval: 1000; running: true; repeat: true; onTriggered: header.refresh() }
     }
 
     // ---- calm "all quiet" state -----------------------------------------
@@ -71,7 +55,7 @@ Item {
         visible: !root.empty
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: title.bottom
+        anchors.top: header.bottom
         anchors.bottom: dismiss.top
         anchors.margins: 24
         anchors.topMargin: 16

@@ -5,9 +5,10 @@ import "../"
 // Namespace list — unhealthy namespaces first and named in crit red. 27
 // namespaces on the real cluster and only ~9 rows fit, so this MUST scroll:
 // a ListView with a visible scrollbar, never a silently truncated list.
-Item {
+Rectangle {
     id: root
     anchors.fill: parent
+    color: Theme.bg
 
     readonly property var sortedNamespaces: {
         var list = (bridge.namespaces || []).slice()
@@ -24,33 +25,17 @@ Item {
         return (bytes / 1e6).toFixed(1) + " MB"
     }
 
-    Text {
-        id: title
-        text: "NAMESPACES"
-        color: Theme.fgBright
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.body
-        font.bold: true
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.margins: 24
-    }
-
-    Text {
-        text: root.sortedNamespaces.length
-        color: Theme.dim
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.body
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: 24
+    PageHeader {
+        id: header
+        title: "NAMESPACES"
+        rightText: String(root.sortedNamespaces.length)
     }
 
     ListView {
         id: list
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: title.bottom
+        anchors.top: header.bottom
         anchors.bottom: parent.bottom
         anchors.margins: 24
         anchors.topMargin: 16

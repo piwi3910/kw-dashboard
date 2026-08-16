@@ -3,9 +3,10 @@ import "../"
 
 // One namespace's pods, fetched on demand via bridge.fetchPods (async —
 // podsFetched(ns, pods) arrives later). Unhealthy pods sort first.
-Item {
+Rectangle {
     id: root
     anchors.fill: parent
+    color: Theme.bg
 
     readonly property string ns: bridge.viewParams.ns || ""
     property bool loaded: false

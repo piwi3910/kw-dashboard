@@ -1,17 +1,17 @@
 import QtQuick 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Controls 2.15
-import QtGraphicalEffects 1.15
 import "../"
 
 // Main "at a glance" page: cluster header, CPU/MEM/PODS/NETWORK cards on the
 // left, a live NODES table on the right. Lives on screen almost all the
 // time, so every value that can move (percentages, rates, bar widths)
 // eases into place instead of snapping.
-Item {
+Rectangle {
     id: page
     width: 1280
     height: 720
+    color: Theme.bg
 
     // ---- helpers -----------------------------------------------------
 
@@ -38,20 +38,31 @@ Item {
 
     // ---- reusable bits -------------------------------------------------
 
-    component CardBg: Rectangle {
-        radius: 10
-        color: Theme.panel
-        border.color: Theme.border
-        border.width: 1
-        antialiasing: true
-        layer.enabled: true
-        layer.effect: DropShadow {
-            radius: 14
-            samples: 24
-            spread: 0.05
-            color: "#80000000"
-            verticalOffset: 6
-            transparentBorder: true
+    // Elevation used to come from QtGraphicalEffects' DropShadow applied via
+    // layer.enabled/layer.effect on the Rectangle the card content lived
+    // inside. That effect needs a GL shader; under the offscreen software
+    // rendering backend it silently paints nothing, and because
+    // layer.enabled turns the WHOLE item (including every child placed
+    // inside it) into that one broken texture, the entire card body — not
+    // just the shadow — vanished. Faked here instead with a plain solid
+    // rectangle offset behind the card face: no shader, so content is
+    // guaranteed to render regardless of backend. Content-bearing children
+    // are declared directly inside CardBg (Item's default "data" property),
+    // stacking on top of the shadow and face rectangles beneath them.
+    component CardBg: Item {
+        Rectangle {
+            anchors.fill: parent
+            anchors.topMargin: 6
+            radius: 10
+            color: "#40000000"
+        }
+        Rectangle {
+            anchors.fill: parent
+            radius: 10
+            color: Theme.panel
+            border.color: Theme.border
+            border.width: 1
+            antialiasing: true
         }
     }
 

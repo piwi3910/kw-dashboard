@@ -3,42 +3,29 @@ import "../"
 
 // Throughput + CPU trend + recent-events feed. Content is distributed down
 // the FULL panel height on purpose — an earlier cut wasted the bottom half.
-Item {
+Rectangle {
     id: root
     anchors.fill: parent
+    color: Theme.bg
 
-    Text {
-        id: title
-        text: "PULSE"
-        color: Theme.fgBright
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.body
-        font.bold: true
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.margins: 24
+    PageHeader {
+        id: header
+        title: "PULSE"
+        rightText: root.clockText
     }
 
-    Text {
-        id: clock
-        color: Theme.dim
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.body
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: 24
-
-        function refresh() { text = Qt.formatTime(new Date(), "hh:mm") }
-        Component.onCompleted: refresh()
-        Timer { interval: 1000; running: true; repeat: true; onTriggered: clock.refresh() }
-    }
+    property string clockText: Qt.formatTime(new Date(), "hh:mm")
+    Timer { interval: 1000; running: true; repeat: true; onTriggered: root.clockText = Qt.formatTime(new Date(), "hh:mm") }
 
     // ---- stat row: NET RX / NET TX / WARN EVENTS ----------------------
+    // Values use Theme.big rather than Theme.huge: at huge (120px) the two
+    // "N.N MB/s" strings alone run past 1280px combined with the WARN
+    // EVENTS column, pushing it off the right edge. Theme.big keeps the
+    // row comfortably inside the 1280px canvas with room to spare.
     Row {
         id: stats
         anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: title.bottom
+        anchors.top: header.bottom
         anchors.topMargin: 28
         anchors.leftMargin: 24
         spacing: 64
@@ -49,7 +36,7 @@ Item {
                 text: (root.netRxMB).toFixed(1) + " MB/s"
                 color: Theme.fgBright
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.huge
+                font.pixelSize: Theme.big
             }
             Text { text: "NET RX"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.small }
         }
@@ -59,7 +46,7 @@ Item {
                 text: (root.netTxMB).toFixed(1) + " MB/s"
                 color: Theme.fgBright
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.huge
+                font.pixelSize: Theme.big
             }
             Text { text: "NET TX"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.small }
         }
@@ -69,7 +56,7 @@ Item {
                 text: root.warnCount
                 color: root.warnCount > 0 ? Theme.warn : Theme.fg
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.huge
+                font.pixelSize: Theme.big
             }
             Text { text: "WARN EVENTS"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.small }
         }
@@ -100,6 +87,8 @@ Item {
             anchors.fill: parent
             property var hist: bridge.cpuHistory || []
             onHistChanged: requestPaint()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
             onPaint: {
                 var ctx = getContext("2d")
                 ctx.reset()
@@ -108,6 +97,8 @@ Item {
                 var w = width, ht = height
                 ctx.strokeStyle = Theme.accent
                 ctx.lineWidth = 3
+                ctx.lineJoin = "round"
+                ctx.lineCap = "round"
                 ctx.beginPath()
                 for (var i = 0; i < h.length; i++) {
                     var x = (i / (h.length - 1)) * w
@@ -117,6 +108,18 @@ Item {
                 }
                 ctx.stroke()
             }
+        }
+
+        // A history array too short to plot (<2 points) used to leave the
+        // Canvas blank, which reads as a flat/dead line rather than "no
+        // data" — call it out explicitly instead.
+        Text {
+            anchors.centerIn: parent
+            visible: spark.hist.length < 2
+            text: "no data yet"
+            color: Theme.dim
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.small
         }
     }
 

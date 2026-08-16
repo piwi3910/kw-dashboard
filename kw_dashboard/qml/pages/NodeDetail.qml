@@ -2,9 +2,10 @@ import QtQuick 2.15
 import "../"
 
 // Single node: conditions, CPU/mem/temp, and the pods scheduled on it.
-Item {
+Rectangle {
     id: root
     anchors.fill: parent
+    color: Theme.bg
 
     readonly property string nodeName: bridge.viewParams.node || ""
     readonly property var node: {

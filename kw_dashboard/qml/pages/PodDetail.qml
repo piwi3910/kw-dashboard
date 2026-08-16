@@ -3,9 +3,10 @@ import "../"
 
 // Pod facts, then one tappable "logs: <container>" row per container.
 // Every container is listed — a cap here would make sidecar logs unreachable.
-Item {
+Rectangle {
     id: root
     anchors.fill: parent
+    color: Theme.bg
 
     readonly property string ns: bridge.viewParams.ns || ""
     readonly property string podName: bridge.viewParams.pod || ""
