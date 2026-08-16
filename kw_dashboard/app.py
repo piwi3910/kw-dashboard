@@ -27,6 +27,9 @@ class App:
                        cfg.idle_reset_seconds)
         self.hits: list = []
         self._alert_seen = False
+        self.scroll = {}          # view-key -> int offset (rows)
+        self._drag_start = None   # (x, y) where the current press began
+        self._drag_moved = False
 
     def _init_display(self):
         if not self.windowed:
@@ -58,6 +61,18 @@ class App:
             self.view_cache = {}
             self._inflight = set()
 
+    def scroll_key(self, view):
+        return (view.kind, tuple(sorted(view.params.items())))
+
+    # ponytail: view_cache/scroll are unbounded insertion-order dicts capped
+    # by _cache_evict below; upgrade to a real LRU/TTL if browsing patterns
+    # ever outgrow ~24 live namespaces/pods/log-streams.
+    _CACHE_MAX = 24
+
+    def _cache_evict(self):
+        while len(self.view_cache) > self._CACHE_MAX:
+            self.view_cache.pop(next(iter(self.view_cache)))
+
     def fetch_pods(self, ns: str):
         """Fetch pods for a namespace in a worker thread; cache the result."""
         import threading
@@ -70,11 +85,13 @@ class App:
         def work():
             try:
                 self.view_cache[key] = self.collector.kube.list_pods(ns)
+                self.view_cache.pop(("err", ns), None)
             except Exception as e:
-                self.view_cache[key] = []
+                self.view_cache.pop(key, None)   # keep the miss so it renders as an error, not empty
                 self.view_cache[("err", ns)] = str(e)
             finally:
                 self._inflight.discard(key)
+                self._cache_evict()
 
         threading.Thread(target=work, daemon=True).start()
         return None
@@ -100,6 +117,7 @@ class App:
                 stream.append_lines([f"[log unavailable: {e}]"])
             finally:
                 self._inflight.discard(key)
+                self._cache_evict()
 
         threading.Thread(target=work, daemon=True).start()
         return stream
@@ -131,8 +149,10 @@ class App:
                         running = False
                     elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
                         running = False
-                    elif ev.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
-                        if ev.type == pygame.FINGERDOWN:
+                    elif ev.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN,
+                                     pygame.MOUSEMOTION, pygame.FINGERMOTION,
+                                     pygame.MOUSEBUTTONUP, pygame.FINGERUP):
+                        if ev.type in (pygame.FINGERDOWN, pygame.FINGERMOTION, pygame.FINGERUP):
                             cal = self.cfg.touch
                             # SDL normalises finger coords to 0..1; project back onto the
                             # configured raw range so swap/invert knobs actually apply.
@@ -142,7 +162,25 @@ class App:
                                                 self.cfg.width, self.cfg.height)
                         else:
                             pos = ev.pos          # mouse in --windowed mode needs no calibration
-                        self._dispatch_touch(pos, now)
+
+                        if ev.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
+                            self._drag_start = pos
+                            self._drag_moved = False
+                            self.nav.touch(now)
+                        elif ev.type in (pygame.MOUSEMOTION, pygame.FINGERMOTION):
+                            if self._drag_start is not None:
+                                dy = pos[1] - self._drag_start[1]
+                                if abs(dy) > 8:
+                                    self._drag_moved = True
+                                    key = self.scroll_key(self.nav.current)
+                                    self.scroll[key] = max(
+                                        0, self.scroll.get(key, 0) + (1 if dy < 0 else -1))
+                                    self._drag_start = pos  # re-anchor so drag is continuous
+                        elif ev.type in (pygame.MOUSEBUTTONUP, pygame.FINGERUP):
+                            if self._drag_start is not None and not self._drag_moved:
+                                self._dispatch_touch(self._drag_start, now)
+                            self._drag_start = None
+                            self._drag_moved = False
                 snap = self.collector.snapshot()
                 self._check_preemption(snap, now)
                 self.nav.tick(now)
