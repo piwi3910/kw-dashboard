@@ -1,0 +1,28 @@
+# deploy/kw-dashboard.service
+[Unit]
+Description=kw-dashboard on the HDMI panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# piwi acquires DRM master unprivileged (already in video/render groups) —
+# see docs/hardware-findings.md #1. Do not fall back to root.
+User=piwi
+Group=piwi
+SupplementaryGroups=video render input tty
+Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/kw-dashboard
+ExecStart=/usr/bin/python3 -m kw_dashboard --config /etc/kw-dashboard/config.toml
+Restart=always
+RestartSec=5
+# Bound to a dedicated VT so it never contends with the console on tty1
+# (tty1 + serial ttyS2 are occupied; tty2 is free — hardware-findings.md #2).
+TTYPath=/dev/tty2
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

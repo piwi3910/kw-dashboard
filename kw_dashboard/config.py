@@ -56,7 +56,7 @@ class Config:
     loki_enabled: bool = False
 
     token_path: str = "/etc/kw-dashboard/token"
-    ca_path: str = "/var/lib/rancher/k3s/server/tls/server-ca.crt"
+    ca_path: str = "/etc/kw-dashboard/ca.crt"
 
     poll_fast_seconds: float = 5.0
     poll_slow_seconds: float = 20.0

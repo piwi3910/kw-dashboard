@@ -1,0 +1,32 @@
+# deploy/rbac.yaml
+# Read-only access. The built-in `view` ClusterRole already grants get on
+# pods/log, which the log viewer needs, and grants no write verbs. Do not
+# replace this with a custom Role/ClusterRole that grants anything beyond
+# `view` — the dashboard has no mutating call anywhere in its codebase.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kw-dashboard
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kw-dashboard-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: kw-dashboard
+    namespace: monitoring
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kw-dashboard-token
+  namespace: monitoring
+  annotations:
+    kubernetes.io/service-account.name: kw-dashboard
+type: kubernetes.io/service-account-token
