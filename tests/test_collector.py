@@ -33,3 +33,21 @@ def test_is_stale_uses_per_source_timestamps():
 
 def test_is_stale_for_never_updated_source():
     assert is_stale(Snapshot(), "prom", limit=45) is True
+
+def test_kube_failure_does_not_mark_prometheus_stale():
+    """A dead k8s API must not make healthy prometheus data look stale/errored."""
+    from unittest.mock import MagicMock
+    from kw_dashboard.collector import Collector, is_stale
+    cfg = MagicMock(poll_fast_seconds=1, poll_slow_seconds=1)
+    prom = MagicMock()
+    prom.scalar.return_value = 5.0
+    prom.query_named.return_value = []
+    kube = MagicMock()
+    kube.list_nodes.side_effect = RuntimeError("api down")
+    c = Collector(cfg, prom, kube, MagicMock())
+    c._poll_prom()
+    snap = c.snapshot()
+    assert "prom" in snap.updated          # prometheus stamped fresh
+    assert "prom" not in snap.errors       # and NOT blamed
+    assert "nodes" in snap.errors          # the failure is attributed correctly
+    assert is_stale(snap, "prom", limit=45) is False

@@ -54,10 +54,17 @@ class Collector:
                 pods_running=int(self.prom.scalar("pods_running")),
                 net_rx=self.prom.scalar("net_rx"), net_tx=self.prom.scalar("net_tx"),
                 cpu_history=tuple(self._cpu_hist), mem_history=tuple(self._mem_hist))
-            self._node_and_ns()
             self._mark("prom")
         except Exception as e:
             self._mark("prom", str(e))
+
+        # Independently marked: this path needs BOTH prometheus and the k8s API,
+        # so a failure here must not be attributed to prometheus alone.
+        try:
+            self._node_and_ns()
+            self._mark("nodes")
+        except Exception as e:
+            self._mark("nodes", str(e))
 
     def _node_and_ns(self):
         nodes = self.kube.list_nodes()
