@@ -53,6 +53,57 @@ class App:
         elif not crit:
             self._alert_seen = False
 
+    def _ensure_cache(self):
+        if not hasattr(self, "view_cache"):
+            self.view_cache = {}
+            self._inflight = set()
+
+    def fetch_pods(self, ns: str):
+        """Fetch pods for a namespace in a worker thread; cache the result."""
+        import threading
+        self._ensure_cache()
+        key = ("pods", ns)
+        if key in self.view_cache or key in self._inflight:
+            return self.view_cache.get(key)
+        self._inflight.add(key)
+
+        def work():
+            try:
+                self.view_cache[key] = self.collector.kube.list_pods(ns)
+            except Exception as e:
+                self.view_cache[key] = []
+                self.view_cache[("err", ns)] = str(e)
+            finally:
+                self._inflight.discard(key)
+
+        threading.Thread(target=work, daemon=True).start()
+        return None
+
+    def fetch_logs(self, ns: str, pod: str, container: str | None):
+        import threading
+        from .logstream import LogStream
+        self._ensure_cache()
+        key = ("logs", ns, pod, container)
+        if key in self._inflight:
+            return self.view_cache.get(key)
+        if key not in self.view_cache:
+            self.view_cache[key] = LogStream(ring_size=self.cfg.log_ring_size)
+        stream = self.view_cache[key]
+        self._inflight.add(key)
+
+        def work():
+            try:
+                lines = self.collector.kube.pod_log(
+                    ns, pod, container, tail=self.cfg.log_tail_lines)
+                stream.append_lines(lines[-self.cfg.log_tail_lines:])
+            except Exception as e:
+                stream.append_lines([f"[log unavailable: {e}]"])
+            finally:
+                self._inflight.discard(key)
+
+        threading.Thread(target=work, daemon=True).start()
+        return stream
+
     def render_once(self, snap) -> pygame.Surface:
         from .ui.pages import registry
         self.screen.fill(THEME.bg)
