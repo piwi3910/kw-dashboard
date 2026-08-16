@@ -16,7 +16,8 @@ def build_url(url: str, params: dict | None) -> str:
 
 def get_json(url: str, *, token: str | None = None, ca: str | None = None,
              timeout: float = 8.0, params: dict | None = None) -> dict:
-    req = urllib.request.Request(build_url(url, params), method="GET")
+    full_url = build_url(url, params)
+    req = urllib.request.Request(full_url, method="GET")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     ctx = None
@@ -26,13 +27,14 @@ def get_json(url: str, *, token: str | None = None, ca: str | None = None,
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
             return json.loads(r.read().decode())
     except Exception as e:
-        raise HttpError(f"GET {url}: {e}") from e
+        raise HttpError(f"GET {full_url}: {e}") from e
 
 
 def get_text(url: str, *, token: str | None = None, ca: str | None = None,
              timeout: float = 8.0, params: dict | None = None) -> str:
     """Plain-text GET, used for the pod log endpoint."""
-    req = urllib.request.Request(build_url(url, params), method="GET")
+    full_url = build_url(url, params)
+    req = urllib.request.Request(full_url, method="GET")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     ctx = None
@@ -42,4 +44,4 @@ def get_text(url: str, *, token: str | None = None, ca: str | None = None,
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
             return r.read().decode(errors="replace")
     except Exception as e:
-        raise HttpError(f"GET {url}: {e}") from e
+        raise HttpError(f"GET {full_url}: {e}") from e

@@ -23,3 +23,9 @@ def test_get_json_wraps_errors_as_httperror():
     with patch("urllib.request.urlopen", side_effect=OSError("refused")):
         with pytest.raises(HttpError):
             get_json("http://x")
+
+def test_httperror_message_includes_query_params():
+    with patch("urllib.request.urlopen", side_effect=OSError("refused")):
+        with pytest.raises(HttpError) as exc:
+            get_json("http://x/api", params={"query": "up"})
+    assert "query=up" in str(exc.value)
