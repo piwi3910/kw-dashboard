@@ -6,6 +6,56 @@ from ..theme import THEME
 from ..widgets import draw_back_button, TOUCH_MIN_H
 from ...logstream import wrap_line
 
+_LEVELS = {"INFO", "WARN", "WARNING", "ERROR", "ERR", "DEBUG", "TRACE", "FATAL"}
+_WARN_LEVELS = {"WARN", "WARNING"}
+_CRIT_LEVELS = {"ERROR", "ERR", "FATAL"}
+
+# Column layout: timestamp | level | message, all fixed-width so the eye can
+# scan straight down each column. 24 chars covers a full RFC3339-with-millis
+# stamp ("2026-08-16T15:02:11.884Z"); 5 covers the longest common level
+# token ("ERROR"). Real logs vary — a longer level just pushes the message
+# column right on that one row rather than truncating anything.
+TS_COL = 24
+LEVEL_COL = 5
+PREFIX = TS_COL + 1 + LEVEL_COL + 1
+
+
+def split_log_line(line: str) -> tuple[str, str, str]:
+    """Split a log line into (timestamp, level, message).
+
+    Returns "" for any part that is absent — the level in particular is
+    the container's own convention, not something Kubernetes guarantees,
+    so most lines legitimately have none. Never drops text: whatever isn't
+    recognised as timestamp/level stays in the message verbatim.
+    """
+    if not line:
+        return "", "", ""
+
+    head, _, rest = line.partition(" ")
+    if not (len(head) >= 5 and head[:4].isdigit() and head[4] == "-" and "T" in head):
+        return "", "", line
+
+    ts = head
+    tok, _, rest2 = rest.partition(" ")
+    if tok.upper() in _LEVELS:
+        return ts, tok.upper(), rest2
+    return ts, "", rest
+
+
+def _level_color(level: str) -> tuple:
+    if level in _CRIT_LEVELS:
+        return THEME.crit
+    if level in _WARN_LEVELS:
+        return THEME.warn
+    return THEME.dim
+
+
+def _display_ts(ts: str, budget: int) -> str:
+    """Truncate to time-of-day if the full timestamp won't fit its column."""
+    if len(ts) <= budget:
+        return ts
+    return ts.split("T", 1)[1] if "T" in ts else ts[:budget]
+
 
 def render(surf, snap, nav, fonts, app):
     p = nav.current.params
@@ -25,15 +75,27 @@ def render(surf, snap, nav, fonts, app):
     cols = max(20, (surf.get_width() - 60) // char_w)
     line_h = mono.get_linesize()
     rows = (surf.get_height() - 130) // line_h
+    msg_cols = max(10, cols - PREFIX)
 
-    wrapped: list[str] = []
+    # Each raw line becomes one or more display rows: (ts, level, text, is_first)
+    display_rows: list[tuple[str, str, str, bool]] = []
     for ln in stream.visible(rows=rows):
-        wrapped.extend(wrap_line(ln, cols))
-    wrapped = wrapped[-rows:]
+        ts, level, msg = split_log_line(ln)
+        ts = _display_ts(ts, TS_COL)
+        segments = wrap_line(msg, msg_cols)
+        for i, seg in enumerate(segments):
+            display_rows.append((ts, level, seg, i == 0))
+    display_rows = display_rows[-rows:]
 
     y = 80
-    for ln in wrapped:
-        surf.blit(mono.render(ln, True, THEME.fg), (30, y))
+    x0 = 30
+    msg_x = x0 + PREFIX * char_w
+    for ts, level, seg, is_first in display_rows:
+        if is_first:
+            surf.blit(mono.render(ts.ljust(TS_COL), True, THEME.dim), (x0, y))
+            surf.blit(mono.render(level.ljust(LEVEL_COL), True, _level_color(level)),
+                       (x0 + (TS_COL + 1) * char_w, y))
+        surf.blit(mono.render(seg, True, THEME.fg), (msg_x, y))
         y += line_h
 
     up = pygame.Rect(surf.get_width() - 200, surf.get_height() - 70, 90, TOUCH_MIN_H)
