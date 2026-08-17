@@ -1,25 +1,46 @@
 import QtQuick 2.15
 import QtQuick.Layouts 1.15
-import QtQuick.Controls 2.15
 import "../"
 
-// Main "at a glance" page: cluster header, CPU/MEM/PODS/NETWORK cards on the
-// left, a live NODES table on the right. Lives on screen almost all the
-// time, so every value that can move (percentages, rates, bar widths)
-// eases into place instead of snapping.
+// Cluster overview: a Grafana-style observability panel grid (design 5a).
+// Supersedes the earlier console-grid layout. Panel geometry mirrors
+// 5a.html's pixel grid exactly (it sums to precisely 1280x720); internal
+// type sizes are scaled up past 5a's ~11-13px labels to this project's
+// legibility floor, which means fewer visible rows in the dense tables —
+// see the task report for exact numbers.
 Rectangle {
     id: page
     width: 1280
     height: 720
     color: Theme.bg
 
-    // ---- helpers -----------------------------------------------------
+    // ---- bridge-optional fields (guarded — may not exist yet) -----------
+    readonly property var nodeCpuSeries: bridge.nodeCpuSeries || []
+    readonly property var netRxSeries: bridge.netRxSeries || []
+    readonly property var netTxSeries: bridge.netTxSeries || []
+    readonly property string timeRangeLabel: bridge.timeRangeLabel || "Last 1 hour"
+    readonly property int alertsFiring: (bridge.alertsFiring !== undefined && bridge.alertsFiring !== null)
+        ? bridge.alertsFiring : ((bridge.alerts || []).length)
 
-    function numColor(pct) {
-        if (pct >= 88) return Theme.crit
-        if (pct >= 70) return Theme.warn
-        return Theme.fg
+    readonly property var nodes: bridge.nodes || []
+    readonly property int readyCount: {
+        var c = 0
+        for (var i = 0; i < nodes.length; i++) if (nodes[i].ready) c++
+        return c
     }
+    readonly property int notReadyCount: nodes.length - readyCount
+    readonly property int cordonedCount: {
+        var c = 0
+        for (var i = 0; i < nodes.length; i++) if (nodes[i].cordoned) c++
+        return c
+    }
+
+    // warn/crit thresholds used by the gauge and the "over threshold" tint
+    // in the CPU-by-node legend table — kept local to this page since they
+    // are 5a's own gauge markers (70/85), distinct from Theme.stateColor's
+    // general 70/88 split used elsewhere in the app.
+    readonly property real warnThreshold: 70
+    readonly property real critThreshold: 85
 
     function fmtRate(bytesPerSec) {
         var v = bytesPerSec || 0
@@ -28,55 +49,114 @@ Rectangle {
         return Math.round(v) + " B/s"
     }
 
-    readonly property string clusterState: bridge.stale ? "STALE"
-        : (bridge.alerts && bridge.alerts.length > 0 ? "ALERT" : "OK")
-    readonly property color clusterStateColor: clusterState === "OK" ? Theme.ok
-        : (clusterState === "ALERT" ? Theme.crit : Theme.warn)
+    function fmtRateNoUnit(bytesPerSec) {
+        var v = bytesPerSec || 0
+        if (v >= 1e6) return (v / 1e6).toFixed(1)
+        if (v >= 1e3) return (v / 1e3).toFixed(1)
+        return Math.round(v).toString()
+    }
 
-    property string clockText: Qt.formatTime(new Date(), "hh:mm")
-    Timer { interval: 1000; running: true; repeat: true; onTriggered: page.clockText = Qt.formatTime(new Date(), "hh:mm") }
+    function seriesColor(i) {
+        var c = Theme.seriesColors
+        return c[i % c.length]
+    }
 
-    // ---- reusable bits -------------------------------------------------
+    function fmtTime(ts) {
+        if (ts === undefined || ts === null) return ""
+        var ms = ts > 1e12 ? ts : ts * 1000
+        return Qt.formatDateTime(new Date(ms), "hh:mm")
+    }
 
-    // Elevation used to come from QtGraphicalEffects' DropShadow applied via
-    // layer.enabled/layer.effect on the Rectangle the card content lived
-    // inside. That effect needs a GL shader; under the offscreen software
-    // rendering backend it silently paints nothing, and because
-    // layer.enabled turns the WHOLE item (including every child placed
-    // inside it) into that one broken texture, the entire card body — not
-    // just the shadow — vanished. Faked here instead with a plain solid
-    // rectangle offset behind the card face: no shader, so content is
-    // guaranteed to render regardless of backend. Content-bearing children
-    // are declared directly inside CardBg (Item's default "data" property),
-    // stacking on top of the shadow and face rectangles beneath them.
-    component CardBg: Item {
+    // ---- shared bits ------------------------------------------------------
+
+    // Elevation would normally come from a QtGraphicalEffects DropShadow via
+    // layer.enabled — that shader can't run under the offscreen/software
+    // backend and layer.enabled blanks the WHOLE subtree when it fails, so
+    // panels are a plain bordered rectangle instead (no shader, guaranteed
+    // to render).
+    component PanelBg: Rectangle {
+        color: Theme.panel
+        border.color: Theme.border
+        border.width: 1
+        radius: 3
+        clip: true
+    }
+
+    // Panel with a titled header strip (used by the four "real" panels;
+    // the stat row cards skip this and lay out their own compact content).
+    component Panel: PanelBg {
+        id: panel
+        property string title: ""
+        property string subtitle: ""
+        readonly property real headerH: 30
+        default property alias content: body.data
+
         Rectangle {
-            anchors.fill: parent
-            anchors.topMargin: 6
-            radius: 10
-            color: "#40000000"
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: panel.headerH
+            color: "transparent"
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.bgAlt }
+            Text {
+                text: panel.title
+                anchors { left: parent.left; leftMargin: 10; verticalCenter: parent.verticalCenter }
+                color: Theme.fgMuted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.panelTitle
+                font.bold: true
+            }
+            Text {
+                text: panel.subtitle
+                visible: panel.subtitle.length > 0
+                anchors { right: parent.right; rightMargin: 10; verticalCenter: parent.verticalCenter }
+                color: Theme.dimmer
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.tableText
+            }
         }
-        Rectangle {
-            anchors.fill: parent
-            radius: 10
-            color: Theme.panel
-            border.color: Theme.border
-            border.width: 1
-            antialiasing: true
+        Item {
+            id: body
+            clip: true
+            anchors {
+                left: parent.left; right: parent.right; top: parent.top; bottom: parent.bottom
+                topMargin: panel.headerH; leftMargin: 10; rightMargin: 10; bottomMargin: 6
+            }
         }
     }
 
-    // Antialiased area sparkline: smoothed line + fading gradient fill,
-    // driven straight off a bridge history array.
+    component MiniBar: Item {
+        id: bar
+        property real pct: 0
+        property color fillColor: Theme.ok
+        implicitWidth: 90
+        implicitHeight: 10
+        Rectangle { anchors.fill: parent; radius: 3; color: Theme.border }
+        Rectangle {
+            radius: 3
+            color: bar.fillColor
+            height: parent.height
+            width: Math.max(0, Math.min(1, bar.pct / 100)) * parent.width
+            Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        }
+    }
+
+    // Single-series area sparkline used by the stat cards. Handles empty,
+    // single-point and all-equal-value histories: an all-equal history is
+    // drawn as a flat line through the MIDDLE of the 0-100 band rather than
+    // pinned to the bottom, since the value it represents (a percentage) is
+    // never renormalised against its own min/max — it always maps directly
+    // onto the fixed 0-100 axis, so a genuinely-zero series is the only one
+    // that ever touches the bottom.
     component Sparkline: Canvas {
         id: spark
         property var history: []
+        property color lineColor: Theme.ok
         antialiasing: true
         renderStrategy: Canvas.Cooperative
 
         onHistoryChanged: requestPaint()
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
+        onLineColorChanged: requestPaint()
 
         onPaint: {
             var ctx = getContext("2d")
@@ -85,18 +165,17 @@ Rectangle {
             if (!pts || pts.length < 2) return
 
             var w = width, h = height
-            var step = w / (pts.length - 1)
-
             function y(v) { return h - (Math.max(0, Math.min(100, v)) / 100) * h }
+            var step = pts.length > 1 ? w / (pts.length - 1) : w
 
             var grad = ctx.createLinearGradient(0, 0, 0, h)
-            grad.addColorStop(0, Qt.rgba(0.223, 0.529, 0.898, 0.34))
-            grad.addColorStop(1, Qt.rgba(0.223, 0.529, 0.898, 0))
+            var c = spark.lineColor
+            grad.addColorStop(0, Qt.rgba(c.r, c.g, c.b, 0.32))
+            grad.addColorStop(1, Qt.rgba(c.r, c.g, c.b, 0))
 
             ctx.beginPath()
             ctx.moveTo(0, y(pts[0]))
-            for (var i = 1; i < pts.length; i++)
-                ctx.lineTo(i * step, y(pts[i]))
+            for (var i = 1; i < pts.length; i++) ctx.lineTo(i * step, y(pts[i]))
             ctx.lineTo(w, h)
             ctx.lineTo(0, h)
             ctx.closePath()
@@ -105,320 +184,509 @@ Rectangle {
 
             ctx.beginPath()
             ctx.moveTo(0, y(pts[0]))
-            for (var j = 1; j < pts.length; j++)
-                ctx.lineTo(j * step, y(pts[j]))
-            ctx.strokeStyle = Theme.accent
-            ctx.lineWidth = 2.5
+            for (var j = 1; j < pts.length; j++) ctx.lineTo(j * step, y(pts[j]))
+            ctx.strokeStyle = spark.lineColor
+            ctx.lineWidth = 2
             ctx.lineJoin = "round"
             ctx.lineCap = "round"
             ctx.stroke()
         }
 
-        // Fewer than 2 points can't plot a line — an empty canvas reads as
-        // "flat, unchanging real data" rather than "not enough data yet",
-        // so say so explicitly instead of leaving it blank.
         Text {
             anchors.centerIn: parent
             visible: !spark.history || spark.history.length < 2
             text: "collecting…"
-            color: Theme.dim
+            color: Theme.dimmer
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.small
+            font.pixelSize: Theme.tableText
         }
     }
 
-    component MiniBar: Item {
-        id: bar
-        property real pct: 0
-        property color fillColor: Theme.ok
-        implicitWidth: 64
-        implicitHeight: 8
-        Rectangle { anchors.fill: parent; radius: 4; color: Theme.border }
-        Rectangle {
-            radius: 4
-            color: bar.fillColor
-            height: parent.height
-            width: Math.max(0, Math.min(1, bar.pct / 100)) * parent.width
-            Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-        }
-    }
-
-    component MetricLabel: Text {
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.small
-        font.letterSpacing: 2
-        color: Theme.fg
-    }
-
-    // ---- header ---------------------------------------------------------
+    // ---- breadcrumb bar (0-44) --------------------------------------------
 
     Rectangle {
-        id: header
+        id: breadcrumb
         anchors { left: parent.left; right: parent.right; top: parent.top }
-        height: 64
-        color: Theme.panel
-        border.color: Theme.border
-        border.width: 0
-
+        height: 44
+        color: Theme.bgAlt
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.border }
 
         RowLayout {
-            anchors.left: parent.left
-            anchors.leftMargin: 24
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 14
-
-            Text {
-                text: "KM01"
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.body
-                font.letterSpacing: 1.5
-                font.bold: true
-                color: Theme.fgBright
-            }
-            Text {
-                text: "k3s · " + bridge.nodes.length + (bridge.nodes.length === 1 ? " node · " : " nodes · ")
-                    + bridge.podsRunning + (bridge.podsRunning === 1 ? " pod" : " pods")
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.small
-                color: Theme.fg
-            }
+            anchors { left: parent.left; leftMargin: 14; verticalCenter: parent.verticalCenter }
+            spacing: 8
+            Text { text: "kw"; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text { text: "/"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text { text: "kubernetes"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text { text: "/"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text { text: "cluster overview"; color: Theme.fgBright; font.bold: true; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
         }
 
+        // Display-only chips: the bridge exposes a fixed time-range label
+        // and refresh interval; tapping them intentionally does nothing —
+        // building a working picker was explicitly out of scope for this
+        // page.
         RowLayout {
-            anchors.right: parent.right
-            anchors.rightMargin: 24
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 26
+            anchors { right: parent.right; rightMargin: 14; verticalCenter: parent.verticalCenter }
+            spacing: 6
 
-            RowLayout {
-                spacing: 10
-                Rectangle {
-                    width: 12; height: 12; radius: 6
-                    color: page.clusterStateColor
-                    Layout.alignment: Qt.AlignVCenter
-                }
-                Text {
-                    text: page.clusterState
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.small
-                    font.letterSpacing: 1
-                    color: page.clusterStateColor
-                }
+            Rectangle {
+                implicitWidth: chipTime.implicitWidth + 20; implicitHeight: 28
+                color: Theme.panelAlt; border.color: Theme.border; border.width: 1; radius: 3
+                Text { id: chipTime; anchors.centerIn: parent; text: "⏱ " + page.timeRangeLabel; color: Theme.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
             }
-
-            Text {
-                text: page.clockText
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.body
-                color: Theme.fgBright
+            Rectangle {
+                implicitWidth: chipRefresh.implicitWidth + 20; implicitHeight: 28
+                color: Theme.panelAlt; border.color: Theme.border; border.width: 1; radius: 3
+                Text { id: chipRefresh; anchors.centerIn: parent; text: "⟳ 10s"; color: Theme.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            }
+            Rectangle {
+                implicitWidth: 34; implicitHeight: 28
+                color: Theme.panelAlt; border.color: Theme.border; border.width: 1; radius: 3
+                Text { anchors.centerIn: parent; text: "−"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
             }
         }
     }
 
-    // ---- content --------------------------------------------------------
+    // ---- filter row (44-82) ------------------------------------------------
 
-    RowLayout {
-        id: content
-        anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: parent.bottom }
-        anchors.margins: 16
-        spacing: 12
+    Rectangle {
+        id: filterBar
+        anchors { left: parent.left; right: parent.right; top: breadcrumb.bottom }
+        height: 38
+        color: Theme.bg
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.panel }
 
-        // -- left column: CPU + PODS --------------------------------------
-        ColumnLayout {
-            Layout.fillHeight: true
-            Layout.preferredWidth: 274
-            spacing: 12
+        RowLayout {
+            anchors { left: parent.left; leftMargin: 14; verticalCenter: parent.verticalCenter }
+            spacing: 18
 
-            CardBg {
-                id: cpuCard
-                Layout.preferredWidth: 274
-                Layout.preferredHeight: 280
-
-                property real display: bridge.clusterCpu
-                Behavior on display { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-
-                MetricLabel { id: cpuLabel; text: "CPU"; anchors { left: parent.left; top: parent.top; margins: 18 } }
-                Text {
-                    anchors { left: parent.left; top: cpuLabel.bottom; leftMargin: 18; topMargin: 6 }
-                    text: Math.round(cpuCard.display) + "%"
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.big
-                    color: Theme.fgBright
-                }
-                Text {
-                    id: cpuPeak
-                    anchors { left: parent.left; bottom: cpuSpark.top; leftMargin: 18; bottomMargin: 8 }
-                    text: "peak " + Math.round(bridge.cpuPeak) + "% · 5 min"
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.small
-                    color: Theme.fg
-                }
-                Sparkline {
-                    id: cpuSpark
-                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                    height: 100
-                    history: bridge.cpuHistory
+            Repeater {
+                model: [
+                    { label: "cluster", value: "km01" },
+                    { label: "namespace", value: "All" },
+                    { label: "node", value: "All" }
+                ]
+                delegate: RowLayout {
+                    spacing: 7
+                    Text { text: modelData.label; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    Rectangle {
+                        implicitWidth: chipVal.implicitWidth + 18; implicitHeight: 26
+                        color: Theme.panelAlt; border.color: Theme.border; border.width: 1; radius: 3
+                        Text { id: chipVal; anchors.centerIn: parent; text: modelData.value + "  ▾"; color: Theme.fgBright; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    }
                 }
             }
+        }
 
-            CardBg {
-                id: podsCard
-                Layout.preferredWidth: 274
-                Layout.fillHeight: true
+        RowLayout {
+            anchors { right: parent.right; rightMargin: 14; verticalCenter: parent.verticalCenter }
+            spacing: 8
+            Rectangle { width: 8; height: 8; radius: 4; color: Theme.crit }
+            Text {
+                text: page.alertsFiring + (page.alertsFiring === 1 ? " alert firing" : " alerts firing")
+                color: Theme.crit
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.tableText
+            }
+        }
+    }
 
-                MetricLabel { id: podsLabel; text: "PODS"; anchors { left: parent.left; top: parent.top; margins: 18 } }
+    // ---- stat row (90-182) -------------------------------------------------
+
+    Item {
+        id: statRow
+        anchors { left: parent.left; right: parent.right; top: filterBar.bottom; topMargin: 8; leftMargin: 8; rightMargin: 8 }
+        height: 92
+
+        readonly property real colW: (width - 3 * 8) / 4
+
+        // CPU utilisation
+        PanelBg {
+            x: 0; width: statRow.colW; height: 92
+            readonly property real display: bridge.clusterCpu
+            readonly property color c: Theme.stateColor(display)
+            Text { id: cpuLbl; text: "CPU utilisation"; anchors { left: parent.left; top: parent.top; margins: 8 }; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text {
+                anchors { left: parent.left; top: cpuLbl.bottom; leftMargin: 8; topMargin: 2 }
+                text: parent.display.toFixed(1) + "%"
+                color: parent.c
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.statNumber
+            }
+            Sparkline { anchors { left: parent.left; right: parent.right; bottom: parent.bottom }; height: 26; history: bridge.cpuHistory; lineColor: parent.c }
+        }
+
+        // Memory utilisation
+        PanelBg {
+            x: statRow.colW + 8; width: statRow.colW; height: 92
+            readonly property real display: bridge.clusterMem
+            readonly property color c: Theme.stateColor(display)
+            Text { id: memLbl; text: "Memory utilisation"; anchors { left: parent.left; top: parent.top; margins: 8 }; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text {
+                anchors { left: parent.left; top: memLbl.bottom; leftMargin: 8; topMargin: 2 }
+                text: parent.display.toFixed(1) + "%"
+                color: parent.c
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.statNumber
+            }
+            Sparkline { anchors { left: parent.left; right: parent.right; bottom: parent.bottom }; height: 26; history: bridge.memHistory; lineColor: parent.c }
+        }
+
+        // Pods running
+        PanelBg {
+            x: (statRow.colW + 8) * 2; width: statRow.colW; height: 92
+            Text { id: podsLbl; text: "Pods running"; anchors { left: parent.left; top: parent.top; margins: 8 }; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text {
+                anchors { left: parent.left; top: podsLbl.bottom; leftMargin: 8; topMargin: 2 }
+                text: bridge.podsRunning
+                color: Theme.fgBright
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.statNumber
+            }
+            Text {
+                anchors { right: parent.right; bottom: parent.bottom; margins: 8 }
+                text: bridge.pendingPods + " pending" + (bridge.unhealthyPods > 0 ? " · " + bridge.unhealthyPods + " failing" : "")
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.tableText
+                // Whole caption reads in crit once there's a failure — the
+                // word "failing" is always present in the string, so colour
+                // is never the only signal.
+                color: bridge.unhealthyPods > 0 ? Theme.crit : Theme.dim
+            }
+        }
+
+        // Nodes ready — the mockup's row of 8 tiny colour-only chips would
+        // be hue-alone state at ~4px wide, well under the legibility floor
+        // and impossible to pair with a label at that size. Replaced with a
+        // textual breakdown ("N ready" / "N not ready") that carries the
+        // same information with words, not just colour.
+        PanelBg {
+            x: (statRow.colW + 8) * 3; width: statRow.colW; height: 92
+            readonly property color c: page.notReadyCount > 0 ? Theme.crit : (page.cordonedCount > 0 ? Theme.warn : Theme.ok)
+            Text { id: nodesLbl; text: "Nodes ready"; anchors { left: parent.left; top: parent.top; margins: 8 }; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text {
+                anchors { left: parent.left; top: nodesLbl.bottom; leftMargin: 8; topMargin: 2 }
+                text: page.readyCount + " / " + page.nodes.length
+                color: parent.c
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.statNumber
+            }
+            Row {
+                anchors { left: parent.left; bottom: parent.bottom; margins: 8 }
+                spacing: 6
+                Text { text: page.readyCount + " ready"; color: Theme.ok; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
                 Text {
-                    anchors { left: parent.left; top: podsLabel.bottom; leftMargin: 18; topMargin: 6 }
-                    text: bridge.podsRunning
+                    visible: page.notReadyCount + page.cordonedCount > 0
+                    text: "· " + (page.notReadyCount + page.cordonedCount) + " not ready"
+                    color: page.notReadyCount > 0 ? Theme.crit : Theme.warn
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.big
-                    color: Theme.fgBright
+                    font.pixelSize: Theme.tableText
+                }
+            }
+        }
+    }
+
+    // ---- row 2: CPU-by-node chart + Cluster CPU gauge (190-466) ----------
+
+    Item {
+        id: row2
+        anchors { left: parent.left; right: parent.right; top: statRow.bottom; topMargin: 8; leftMargin: 8; rightMargin: 8 }
+        height: 276
+
+        Panel {
+            id: cpuChartPanel
+            x: 0; width: 946; height: 276
+            title: "CPU usage by node"
+
+            readonly property var series: page.nodeCpuSeries
+            readonly property bool hasData: series.length > 0
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 6
+
+                // -- chart --
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 106
+                    spacing: 4
+
+                    Item {
+                        id: yAxis
+                        Layout.preferredWidth: 42
+                        Layout.fillHeight: true
+                        Repeater {
+                            model: ["100%", "75%", "50%", "25%", "0%"]
+                            delegate: Text {
+                                width: yAxis.width
+                                // fractional y so each label lines up with the
+                                // matching gridline the canvas draws at h*g/4
+                                y: (index / 4) * (yAxis.height - height)
+                                text: modelData
+                                color: Theme.dimmer
+                                font.family: Theme.monoFamily
+                                font.pixelSize: Theme.tableText
+                                horizontalAlignment: Text.AlignRight
+                            }
+                        }
+                    }
+
+                    Canvas {
+                        id: chartCanvas
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        antialiasing: true
+                        renderStrategy: Canvas.Cooperative
+
+                        readonly property var series: cpuChartPanel.series
+                        onSeriesChanged: requestPaint()
+                        onWidthChanged: requestPaint()
+                        onHeightChanged: requestPaint()
+
+                        onPaint: {
+                            var ctx = getContext("2d")
+                            ctx.reset()
+                            var w = width, h = height
+
+                            // gridlines
+                            ctx.strokeStyle = Theme.border
+                            ctx.lineWidth = 1
+                            for (var g = 0; g <= 4; g++) {
+                                var gy = h * g / 4
+                                ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke()
+                            }
+
+                            // dashed reference threshold (visual reference at 75%,
+                            // matching the design's dashed line — not tied to a
+                            // specific alert rule the bridge doesn't expose).
+                            var ty = h * (1 - 75 / 100)
+                            ctx.save()
+                            ctx.strokeStyle = Theme.crit
+                            ctx.globalAlpha = 0.5
+                            ctx.setLineDash([5, 5])
+                            ctx.beginPath(); ctx.moveTo(0, ty); ctx.lineTo(w, ty); ctx.stroke()
+                            ctx.restore()
+
+                            var s = chartCanvas.series
+                            if (!s || s.length === 0) return
+
+                            function yOf(v) { return h - (Math.max(0, Math.min(100, v)) / 100) * h }
+
+                            for (var i = 0; i < s.length; i++) {
+                                var pts = s[i].points || []
+                                ctx.strokeStyle = page.seriesColor(i)
+                                ctx.lineWidth = 2
+                                ctx.lineJoin = "round"
+                                ctx.lineCap = "round"
+                                if (pts.length === 0) {
+                                    continue
+                                } else if (pts.length === 1) {
+                                    var yy = yOf(pts[0][1])
+                                    ctx.beginPath(); ctx.moveTo(w * 0.5 - 8, yy); ctx.lineTo(w * 0.5 + 8, yy); ctx.stroke()
+                                } else {
+                                    var step = w / (pts.length - 1)
+                                    ctx.beginPath()
+                                    ctx.moveTo(0, yOf(pts[0][1]))
+                                    for (var j = 1; j < pts.length; j++) ctx.lineTo(j * step, yOf(pts[j][1]))
+                                    ctx.stroke()
+                                }
+                            }
+                        }
+                    }
                 }
 
-                ColumnLayout {
-                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                    spacing: 0
+                Text {
+                    visible: !cpuChartPanel.hasData
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: "no data"
+                    color: Theme.dimmer
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.glance
+                }
+
+                // -- x-axis time labels --
+                RowLayout {
+                    visible: cpuChartPanel.hasData
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 46
+                    Layout.preferredHeight: 16
+
+                    readonly property var firstPts: (cpuChartPanel.series.length > 0 ? (cpuChartPanel.series[0].points || []) : [])
+                    readonly property real t0: firstPts.length > 0 ? firstPts[0][0] : 0
+                    readonly property real t1: firstPts.length > 0 ? firstPts[firstPts.length - 1][0] : 0
 
                     Repeater {
-                        model: [
-                            { label: "pending", value: bridge.pendingPods, warn: false },
-                            { label: "unhealthy", value: bridge.unhealthyPods, warn: bridge.unhealthyPods > 0 },
-                            { label: "restarts", value: bridge.totalRestarts, warn: false }
-                        ]
-                        delegate: Item {
+                        model: 5
+                        delegate: Text {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 52
-                            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: "#222220" }
-                            Text {
-                                anchors { left: parent.left; leftMargin: 18; verticalCenter: parent.verticalCenter }
-                                text: modelData.label
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.small
-                                color: Theme.fg
+                            horizontalAlignment: index === 0 ? Text.AlignLeft : (index === 4 ? Text.AlignRight : Text.AlignHCenter)
+                            readonly property real t: parent.t0 + (parent.t1 - parent.t0) * (index / 4)
+                            text: page.fmtTime(t)
+                            color: Theme.dimmer
+                            font.family: Theme.monoFamily
+                            font.pixelSize: Theme.tableText
+                        }
+                    }
+                }
+
+                // -- legend header --
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 22
+                    Text { Layout.fillWidth: true; text: "series"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 66; horizontalAlignment: Text.AlignRight; text: "min"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 66; horizontalAlignment: Text.AlignRight; text: "max"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 66; horizontalAlignment: Text.AlignRight; text: "mean"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 66; horizontalAlignment: Text.AlignRight; text: "last"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                }
+
+                ListView {
+                    id: legendList
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: cpuChartPanel.series
+                    delegate: Item {
+                        width: legendList.width
+                        height: 26
+                        readonly property bool over: modelData.max !== undefined && modelData.max >= page.warnThreshold
+
+                        Rectangle { anchors.fill: parent; color: over ? Qt.rgba(0.910, 0.702, 0.255, 0.08) : "transparent" }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                RowLayout {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 7
+                                    Rectangle { width: 10; height: 3; radius: 1; color: page.seriesColor(index) }
+                                    Text { text: modelData.name || ""; color: over ? Theme.warn : Theme.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText; elide: Text.ElideRight }
+                                }
                             }
-                            Text {
-                                anchors { right: parent.right; rightMargin: 18; verticalCenter: parent.verticalCenter }
-                                text: modelData.value
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.small
-                                color: modelData.warn ? Theme.warn : Theme.fgBright
-                            }
+                            Text { Layout.preferredWidth: 66; horizontalAlignment: Text.AlignRight; text: (modelData.min !== undefined ? modelData.min.toFixed(1) : "—"); color: over ? Theme.warn : Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                            Text { Layout.preferredWidth: 66; horizontalAlignment: Text.AlignRight; text: (modelData.max !== undefined ? modelData.max.toFixed(1) : "—"); color: over ? Theme.warn : Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                            Text { Layout.preferredWidth: 66; horizontalAlignment: Text.AlignRight; text: (modelData.mean !== undefined ? modelData.mean.toFixed(1) : "—"); color: over ? Theme.warn : Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                            Text { Layout.preferredWidth: 66; horizontalAlignment: Text.AlignRight; text: (modelData.last !== undefined ? modelData.last.toFixed(1) : "—"); color: over ? Theme.warn : Theme.fgBright; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
                         }
                     }
                 }
             }
         }
 
-        // -- second column: MEMORY + NETWORK -------------------------------
-        ColumnLayout {
-            Layout.fillHeight: true
-            Layout.preferredWidth: 274
-            spacing: 12
+        // -- Cluster CPU gauge --
+        Panel {
+            id: gaugePanel
+            x: 954; width: 310; height: 276
+            title: "Cluster CPU"
 
-            CardBg {
-                id: memCard
-                Layout.preferredWidth: 274
-                Layout.preferredHeight: 280
+            readonly property real value: Math.max(0, Math.min(100, bridge.clusterCpu))
+            readonly property color valColor: value >= page.critThreshold ? Theme.crit
+                : (value >= page.warnThreshold ? Theme.warn : Theme.ok)
 
-                property real display: bridge.clusterMem
-                Behavior on display { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            Item {
+                id: gaugeArea
+                anchors { horizontalCenter: parent.horizontalCenter; top: parent.top }
+                width: 200; height: 200
 
-                MetricLabel { id: memLabel; text: "MEMORY"; anchors { left: parent.left; top: parent.top; margins: 18 } }
-                Text {
-                    anchors { left: parent.left; top: memLabel.bottom; leftMargin: 18; topMargin: 6 }
-                    text: Math.round(memCard.display) + "%"
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.big
-                    color: Theme.fgBright
+                Canvas {
+                    id: gaugeCanvas
+                    anchors.fill: parent
+                    antialiasing: true
+                    renderStrategy: Canvas.Cooperative
+
+                    readonly property real value: gaugePanel.value
+                    readonly property color valColor: gaugePanel.valColor
+                    onValueChanged: requestPaint()
+                    onWidthChanged: requestPaint()
+
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.reset()
+                        var cx = width / 2, cy = height / 2
+                        var r = Math.min(width, height) / 2 - 14
+                        var sw = 16
+                        var startA = 135 * Math.PI / 180
+                        var endA = 405 * Math.PI / 180
+                        var valA = startA + (endA - startA) * (gaugeCanvas.value / 100)
+
+                        ctx.lineCap = "round"
+
+                        ctx.beginPath()
+                        ctx.arc(cx, cy, r, startA, endA, false)
+                        ctx.strokeStyle = Theme.border
+                        ctx.lineWidth = sw
+                        ctx.stroke()
+
+                        ctx.beginPath()
+                        ctx.arc(cx, cy, r, startA, valA, false)
+                        ctx.strokeStyle = gaugeCanvas.valColor
+                        ctx.lineWidth = sw
+                        ctx.stroke()
+
+                        // threshold ticks
+                        function tick(pct, color) {
+                            var a = startA + (endA - startA) * (pct / 100)
+                            var x1 = cx + Math.cos(a) * (r - sw / 2 - 3)
+                            var y1 = cy + Math.sin(a) * (r - sw / 2 - 3)
+                            var x2 = cx + Math.cos(a) * (r + sw / 2 + 3)
+                            var y2 = cy + Math.sin(a) * (r + sw / 2 + 3)
+                            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2)
+                            ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke()
+                        }
+                        tick(page.warnThreshold, Theme.warn)
+                        tick(page.critThreshold, Theme.crit)
+                    }
                 }
-                Text {
-                    anchors { left: parent.left; bottom: memSpark.top; leftMargin: 18; bottomMargin: 8 }
-                    text: "peak " + Math.round(bridge.memPeak) + "% · 5 min"
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.small
-                    color: Theme.fg
-                }
-                Sparkline {
-                    id: memSpark
-                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                    height: 100
-                    history: bridge.memHistory
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 2
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: gaugePanel.value.toFixed(1)
+                        color: Theme.fgBright
+                        font.family: Theme.monoFamily
+                        font.pixelSize: Theme.gaugeNumber
+                    }
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "percent"
+                        color: Theme.dim
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.tableText
+                    }
                 }
             }
 
-            CardBg {
-                id: netCard
-                Layout.preferredWidth: 274
-                Layout.fillHeight: true
-
-                readonly property real maxRate: Math.max(bridge.netRx, bridge.netTx, 1) * 1.25
-
-                MetricLabel { id: netLabel; text: "NETWORK"; anchors { left: parent.left; top: parent.top; margins: 18 } }
-
-                ColumnLayout {
-                    anchors { left: parent.left; right: parent.right; top: netLabel.bottom; margins: 18 }
-                    spacing: 10
-
-                    Text { text: "RX"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text {
-                        text: page.fmtRate(bridge.netRx)
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 40
-                        color: Theme.fgBright
-                    }
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 8
-                        radius: 4
-                        color: Theme.border
-                        Rectangle {
-                            radius: 4
-                            height: parent.height
-                            width: Math.max(0, Math.min(1, bridge.netRx / netCard.maxRate)) * parent.width
-                            color: Theme.accent
-                            Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                        }
-                    }
-
-                    Item { Layout.preferredHeight: 6 }
-
-                    Text { text: "TX"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text {
-                        text: page.fmtRate(bridge.netTx)
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 40
-                        color: Theme.fgBright
-                    }
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 8
-                        radius: 4
-                        color: Theme.border
-                        Rectangle {
-                            radius: 4
-                            height: parent.height
-                            width: Math.max(0, Math.min(1, bridge.netTx / netCard.maxRate)) * parent.width
-                            color: Theme.accent
-                            Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                        }
-                    }
-                }
+            RowLayout {
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                Text { text: "0"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Item { Layout.fillWidth: true }
+                Text { text: page.warnThreshold.toFixed(0) + " warn"; color: Theme.warn; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Item { Layout.fillWidth: true }
+                Text { text: page.critThreshold.toFixed(0) + " crit"; color: Theme.crit; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Item { Layout.fillWidth: true }
+                Text { text: "100"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
             }
         }
+    }
 
-        // -- NODES table --------------------------------------------------
-        CardBg {
-            id: nodesCard
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+    // ---- row 3: Node status table + Network throughput (474-712) ---------
 
-            readonly property int readyCount: {
-                var c = 0
-                for (var i = 0; i < bridge.nodes.length; i++)
-                    if (bridge.nodes[i].ready) c++
-                return c
-            }
+    Item {
+        id: row3
+        anchors { left: parent.left; right: parent.right; top: row2.bottom; topMargin: 8; leftMargin: 8; rightMargin: 8 }
+        height: 238
+
+        Panel {
+            id: nodeTablePanel
+            x: 0; width: 946; height: 238
+            title: "Node status"
+            subtitle: page.nodes.length + " rows"
 
             ColumnLayout {
                 anchors.fill: parent
@@ -426,152 +694,239 @@ Rectangle {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 52
-                    Layout.leftMargin: 20
-                    Layout.rightMargin: 20
-
-                    Text {
-                        text: "NODES"
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.small
-                        font.letterSpacing: 2
-                        color: Theme.fgBright
-                    }
-                    Item { Layout.fillWidth: true }
-                    Text {
-                        text: nodesCard.readyCount + " / " + bridge.nodes.length + " ready"
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.small
-                        color: Theme.fg
-                    }
+                    Layout.preferredHeight: 26
+                    Text { Layout.preferredWidth: 150; text: "node"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 96; text: "state"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.fillWidth: true; text: "cpu"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.fillWidth: true; text: "memory"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 60; horizontalAlignment: Text.AlignRight; text: "temp"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 60; horizontalAlignment: Text.AlignRight; text: "pods"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 70; horizontalAlignment: Text.AlignRight; text: "uptime"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
                 }
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.bgAlt }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 40
-                    Layout.leftMargin: 20
-                    Layout.rightMargin: 20
-                    spacing: 8
-
-                    Text { Layout.preferredWidth: 132; text: "NODE"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 112; text: "CPU"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 112; text: "MEM"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 50; horizontalAlignment: Text.AlignRight; text: "°C"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 88; horizontalAlignment: Text.AlignRight; text: "PODS"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 96; horizontalAlignment: Text.AlignRight; text: "STATE"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                }
-                Rectangle { Layout.fillWidth: true; height: 1; color: "#222220" }
-
+                // Touch-target decision: 5a's node rows are ~23px tall,
+                // far below this panel's 60px touch-target floor. Rather
+                // than ship an untappably-small hit target or fake a
+                // bigger one that visually overlaps neighbours, each row
+                // IS the full 60px tap target and the table scrolls — you
+                // see fewer rows at once (see task report) but every row
+                // you can see is fully, honestly tappable.
                 ListView {
-                    id: nodesList
+                    id: nodeList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
-                    model: bridge.nodes
                     boundsBehavior: Flickable.StopAtBounds
+                    model: page.nodes
 
                     delegate: Item {
-                        id: row
-                        width: nodesList.width
-                        height: 66
+                        id: nodeRow
+                        width: nodeList.width
+                        height: Theme.touchMin
 
                         readonly property var node: modelData
-                        readonly property bool isDown: !node.ready
-                        readonly property color sevColor: isDown ? Theme.crit : Theme.stateColor(node.worstPct)
-                        readonly property bool isWarnRow: !isDown && sevColor === Theme.warn
-                        readonly property bool isCritRow: isDown || sevColor === Theme.crit
+                        readonly property string state: !node.ready ? "notready" : (node.cordoned ? "cordon" : "ready")
+                        readonly property color stateColor: state === "notready" ? Theme.crit : (state === "cordon" ? Theme.warn : Theme.ok)
 
                         Rectangle {
                             anchors.fill: parent
-                            color: row.isCritRow ? Qt.rgba(1, 0.549, 0.549, 0.07)
-                                : (row.isWarnRow ? Qt.rgba(0.980, 0.698, 0.098, 0.05) : "transparent")
+                            color: nodeRow.state === "notready" ? Qt.rgba(0.890, 0.416, 0.416, 0.07)
+                                : (nodeRow.state === "cordon" ? Qt.rgba(0.910, 0.702, 0.255, 0.05) : "transparent")
                         }
-                        Rectangle {
-                            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
-                            width: 4
-                            visible: row.isCritRow || row.isWarnRow
-                            color: row.isCritRow ? Theme.crit : Theme.warn
-                        }
-                        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#1c1c1b" }
+                        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.bgAlt }
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 20
-                            anchors.rightMargin: 20
-                            spacing: 8
+                            spacing: 4
 
                             Text {
-                                Layout.preferredWidth: 132
-                                text: row.node.name
+                                Layout.preferredWidth: 150
+                                text: node.name
+                                color: nodeRow.state === "notready" ? Theme.crit : Theme.accent
                                 font.family: Theme.fontFamily
-                                font.pixelSize: Theme.small
-                                color: row.isDown ? Theme.crit : Theme.fgBright
+                                font.pixelSize: Theme.tableText
                                 elide: Text.ElideRight
                             }
 
-                            RowLayout {
-                                Layout.preferredWidth: 112
-                                spacing: 10
-                                visible: !row.isDown
-                                MiniBar { pct: row.node.cpuPct; fillColor: Theme.stateColor(row.node.cpuPct) }
-                                Text { text: Math.round(row.node.cpuPct); font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: page.numColor(row.node.cpuPct) }
-                            }
-                            Text {
-                                Layout.preferredWidth: 112
-                                visible: row.isDown
-                                text: "—"
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.small
-                                color: Theme.fg
-                            }
-
-                            RowLayout {
-                                Layout.preferredWidth: 112
-                                spacing: 10
-                                visible: !row.isDown
-                                MiniBar { pct: row.node.memPct; fillColor: Theme.stateColor(row.node.memPct) }
-                                Text { text: Math.round(row.node.memPct); font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: page.numColor(row.node.memPct) }
-                            }
-                            Text {
-                                Layout.preferredWidth: 112
-                                visible: row.isDown
-                                text: "—"
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.small
-                                color: Theme.fg
-                            }
-
-                            Text {
-                                Layout.preferredWidth: 50
-                                horizontalAlignment: Text.AlignRight
-                                text: (row.isDown || row.node.tempC < 0) ? "—" : Math.round(row.node.tempC)
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.small
-                                color: Theme.fg
-                            }
-                            Text {
-                                Layout.preferredWidth: 88
-                                horizontalAlignment: Text.AlignRight
-                                text: row.node.pods
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.small
-                                color: row.isDown ? Theme.fg : Theme.fgBright
-                            }
-                            Text {
+                            Item {
                                 Layout.preferredWidth: 96
-                                horizontalAlignment: Text.AlignRight
-                                text: row.isDown ? "DOWN" : (row.node.cordoned ? "CORD" : "ready")
+                                Layout.fillHeight: true
+                                Rectangle {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    implicitWidth: statePill.implicitWidth + 14; implicitHeight: 24
+                                    radius: 3
+                                    color: Qt.rgba(nodeRow.stateColor.r, nodeRow.stateColor.g, nodeRow.stateColor.b, 0.16)
+                                    Text { id: statePill; anchors.centerIn: parent; text: nodeRow.state; color: nodeRow.stateColor; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                visible: nodeRow.state !== "notready"
+                                MiniBar { pct: node.cpuPct; fillColor: Theme.stateColor(node.cpuPct) }
+                                Text { text: Math.round(node.cpuPct); color: node.cpuPct >= 70 ? Theme.warn : Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                visible: nodeRow.state === "notready"
+                                text: "no data"
+                                color: Theme.dimmer
                                 font.family: Theme.fontFamily
-                                font.pixelSize: Theme.small
-                                color: row.isDown ? Theme.crit : (row.node.cordoned ? Theme.warn : Theme.fg)
+                                font.pixelSize: Theme.tableText
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                visible: nodeRow.state !== "notready"
+                                MiniBar { pct: node.memPct; fillColor: Theme.stateColor(node.memPct) }
+                                Text { text: Math.round(node.memPct); color: Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                visible: nodeRow.state === "notready"
+                                text: "no data"
+                                color: Theme.dimmer
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.tableText
+                            }
+
+                            Text {
+                                Layout.preferredWidth: 60
+                                horizontalAlignment: Text.AlignRight
+                                text: (nodeRow.state === "notready" || node.tempC < 0) ? "—" : Math.round(node.tempC) + "°"
+                                color: node.tempC >= 60 ? Theme.warn : Theme.fgMuted
+                                font.family: Theme.monoFamily
+                                font.pixelSize: Theme.tableText
+                            }
+                            Text {
+                                Layout.preferredWidth: 60
+                                horizontalAlignment: Text.AlignRight
+                                text: node.pods
+                                color: Theme.fgMuted
+                                font.family: Theme.monoFamily
+                                font.pixelSize: Theme.tableText
+                            }
+                            Text {
+                                Layout.preferredWidth: 70
+                                horizontalAlignment: Text.AlignRight
+                                text: (node.uptimeDays === null || node.uptimeDays === undefined) ? "—" : Math.round(node.uptimeDays) + "d"
+                                color: nodeRow.state === "notready" ? Theme.crit : Theme.dim
+                                font.family: Theme.monoFamily
+                                font.pixelSize: Theme.tableText
                             }
                         }
 
                         TapHandler {
-                            onTapped: bridge.pushView("nodeDetail", { "node": row.node.name })
+                            onTapped: bridge.pushView("nodeDetail", { "node": nodeRow.node.name })
                         }
                     }
+                }
+            }
+        }
+
+        // -- Network throughput --
+        Panel {
+            id: netPanel
+            x: 954; width: 310; height: 238
+            title: "Network throughput"
+
+            readonly property var rxSeries: page.netRxSeries
+            readonly property var txSeries: page.netTxSeries
+            readonly property bool hasData: rxSeries.length > 0 || txSeries.length > 0
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 6
+
+                Canvas {
+                    id: netCanvas
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 96
+                    antialiasing: true
+                    renderStrategy: Canvas.Cooperative
+
+                    readonly property var rx: netPanel.rxSeries
+                    readonly property var tx: netPanel.txSeries
+                    onRxChanged: requestPaint()
+                    onTxChanged: requestPaint()
+                    onWidthChanged: requestPaint()
+
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.reset()
+                        var w = width, h = height
+
+                        ctx.strokeStyle = Theme.border
+                        ctx.lineWidth = 1
+                        ctx.beginPath(); ctx.moveTo(0, h / 3); ctx.lineTo(w, h / 3); ctx.stroke()
+                        ctx.beginPath(); ctx.moveTo(0, 2 * h / 3); ctx.lineTo(w, 2 * h / 3); ctx.stroke()
+
+                        var rxPts = (netCanvas.rx.length > 0 ? (netCanvas.rx[0].points || []) : [])
+                        var txPts = (netCanvas.tx.length > 0 ? (netCanvas.tx[0].points || []) : [])
+                        if (rxPts.length === 0 && txPts.length === 0) return
+
+                        var maxV = 1
+                        var all = rxPts.concat(txPts)
+                        for (var k = 0; k < all.length; k++) maxV = Math.max(maxV, all[k][1])
+                        maxV *= 1.15
+
+                        function draw(pts, color) {
+                            if (pts.length === 0) return
+                            function yOf(v) { return h - (Math.max(0, v) / maxV) * h }
+                            ctx.strokeStyle = color
+                            ctx.lineWidth = 2
+                            ctx.lineJoin = "round"
+                            if (pts.length === 1) {
+                                var yy = yOf(pts[0][1])
+                                ctx.beginPath(); ctx.moveTo(w * 0.5 - 8, yy); ctx.lineTo(w * 0.5 + 8, yy); ctx.stroke()
+                                return
+                            }
+                            var step = w / (pts.length - 1)
+                            ctx.beginPath()
+                            ctx.moveTo(0, yOf(pts[0][1]))
+                            for (var j = 1; j < pts.length; j++) ctx.lineTo(j * step, yOf(pts[j][1]))
+                            ctx.stroke()
+                        }
+                        draw(rxPts, page.seriesColor(1))
+                        draw(txPts, page.seriesColor(3))
+                    }
+                }
+
+                Text {
+                    visible: !netPanel.hasData
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: "no history · " + page.fmtRate(bridge.netRx) + " rx, " + page.fmtRate(bridge.netTx) + " tx"
+                    color: Theme.dimmer
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.tableText
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 20
+                    Text { Layout.fillWidth: true; text: "series"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 56; horizontalAlignment: Text.AlignRight; text: "mean"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight; text: "last"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 22
+                    RowLayout { Layout.fillWidth: true; spacing: 7; Rectangle { width: 10; height: 3; radius: 1; color: page.seriesColor(1) } Text { text: "rx"; color: Theme.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText } }
+                    Text { Layout.preferredWidth: 56; horizontalAlignment: Text.AlignRight; text: netPanel.rxSeries.length > 0 ? page.fmtRateNoUnit(netPanel.rxSeries[0].mean) : "—"; color: Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight; text: page.fmtRate(netPanel.rxSeries.length > 0 ? netPanel.rxSeries[0].last : bridge.netRx); color: Theme.fgBright; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 22
+                    RowLayout { Layout.fillWidth: true; spacing: 7; Rectangle { width: 10; height: 3; radius: 1; color: page.seriesColor(3) } Text { text: "tx"; color: Theme.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText } }
+                    Text { Layout.preferredWidth: 56; horizontalAlignment: Text.AlignRight; text: netPanel.txSeries.length > 0 ? page.fmtRateNoUnit(netPanel.txSeries[0].mean) : "—"; color: Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                    Text { Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight; text: page.fmtRate(netPanel.txSeries.length > 0 ? netPanel.txSeries[0].last : bridge.netTx); color: Theme.fgBright; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
                 }
             }
         }
