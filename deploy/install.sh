@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # deploy/install.sh — deploy kw-dashboard to km01.
 #
-# Idempotent: safe to re-run. Assumes SSH access to the node already works
+# Idempotent: safe to re-run.
+#
+# PREREQUISITES (this script cannot prompt — every ssh call is non-interactive):
+#   1. Key-based SSH to $SSH_USER@$NODE (no password prompt).
+#   2. Passwordless sudo for $SSH_USER on the node, or a SUDO_ASKPASS helper
+#      exported before running. Without one of these, the sudo calls below
+#      fail with "no tty present and no askpass program specified".
+#   3. Paths must stay in step with deploy/kw-dashboard.service:
+#      code -> /opt/kw-dashboard, config/token/CA -> /etc/kw-dashboard.
+#
+# Assumes SSH access to the node already works
 # and that a kubeconfig with cluster-admin-ish rights is available locally
 # for `kubectl apply`/`get secret` (RBAC applied here is read-only: the
 # built-in `view` ClusterRole plus a minimal extra ClusterRole for
