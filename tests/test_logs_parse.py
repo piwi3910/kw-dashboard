@@ -1,4 +1,4 @@
-from kw_dashboard.ui.pages.logs import split_log_line
+from kw_dashboard.logfmt import split_log_line
 
 
 def test_full_line_ts_info_message():

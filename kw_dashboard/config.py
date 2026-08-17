@@ -1,41 +1,12 @@
 """Configuration. Every tunable lives here; nothing is hardcoded at a call site.
 
-The touch calibration knobs exist unconditionally, even though the panel may
-appear correct on first test. Cheap HDMI panels routinely report swapped,
-inverted or offset axes, and firmware revisions differ between units. No
-amount of clean code detects a miscalibrated digitiser.
+Touch scaling is not configured here: under Qt eglfs, libinput reads the
+digitiser's real axis range from the kernel and scales it itself, so no
+calibration knob is needed (do not re-add one).
 """
 from __future__ import annotations
 import tomllib
-from dataclasses import dataclass, field, replace
-
-
-@dataclass(frozen=True)
-class TouchCalibration:
-    x_min: int = 0
-    x_max: int = 4095
-    y_min: int = 0
-    y_max: int = 4095
-    swap_xy: bool = False
-    invert_x: bool = False
-    invert_y: bool = False
-
-    def to_screen(self, raw_x: int, raw_y: int, w: int, h: int) -> tuple[int, int]:
-        """Map a raw digitiser sample to a screen pixel."""
-        def norm(v, lo, hi):
-            if hi == lo:
-                return 0.0
-            return min(1.0, max(0.0, (v - lo) / (hi - lo)))
-
-        nx = norm(raw_x, self.x_min, self.x_max)
-        ny = norm(raw_y, self.y_min, self.y_max)
-        if self.swap_xy:
-            nx, ny = ny, nx
-        if self.invert_x:
-            nx = 1.0 - nx
-        if self.invert_y:
-            ny = 1.0 - ny
-        return (min(w - 1, int(nx * w)), min(h - 1, int(ny * h)))
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -66,8 +37,6 @@ class Config:
     log_tail_lines: int = 200
     log_ring_size: int = 2000
 
-    touch: TouchCalibration = field(default_factory=TouchCalibration)
-
 
 def load_config(path: str | None) -> Config:
     """Load config, falling back to defaults for anything unspecified."""
@@ -80,11 +49,6 @@ def load_config(path: str | None) -> Config:
     except (FileNotFoundError, PermissionError):
         return cfg
 
-    touch_data = data.pop("touch", {})
-    known = {f for f in Config.__dataclass_fields__ if f != "touch"}
+    known = set(Config.__dataclass_fields__)
     cfg = replace(cfg, **{k: v for k, v in data.items() if k in known})
-    if touch_data:
-        known_t = set(TouchCalibration.__dataclass_fields__)
-        cfg = replace(cfg, touch=replace(
-            cfg.touch, **{k: v for k, v in touch_data.items() if k in known_t}))
     return cfg

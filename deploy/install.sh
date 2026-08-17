@@ -3,15 +3,17 @@
 #
 # Idempotent: safe to re-run. Assumes SSH access to the node already works
 # and that a kubeconfig with cluster-admin-ish rights is available locally
-# for `kubectl apply`/`get secret` (RBAC applied here is read-only `view`,
-# see deploy/rbac.yaml; that scope is only for the dashboard's own token).
+# for `kubectl apply`/`get secret` (RBAC applied here is read-only: the
+# built-in `view` ClusterRole plus a minimal extra ClusterRole for
+# cluster-scoped nodes/namespaces reads — see deploy/rbac.yaml; that scope
+# is only for the dashboard's own token).
 set -euo pipefail
 
 NODE="${NODE:-192.168.10.101}"
 SSH_USER="${SSH_USER:-piwi}"
 
 echo "==> installing apt dependencies"
-ssh "$SSH_USER@$NODE" 'sudo apt-get update -qq && sudo apt-get install -y python3-pygame fonts-dejavu-core'
+ssh "$SSH_USER@$NODE" 'sudo apt-get update -qq && sudo apt-get install -y python3-pyqt5 python3-pyqt5.qtquick qml-module-qtquick2 qml-module-qtquick-controls2 qml-module-qtquick-layouts qml-module-qtquick-shapes qml-module-qtgraphicaleffects qml-module-qtquick-window2 fonts-ibm-plex libegl1 libgles2 libgbm1 libgl1-mesa-dri'
 
 echo "==> applying RBAC"
 kubectl apply -f deploy/rbac.yaml
@@ -40,11 +42,7 @@ printf '%s' "$CA" | ssh "$SSH_USER@$NODE" "sudo tee /etc/kw-dashboard/ca.crt >/d
 
 echo "==> installing config"
 ssh "$SSH_USER@$NODE" 'sudo tee /etc/kw-dashboard/config.toml >/dev/null <<EOF
-# Touch calibration: set from tools/probe_hardware.py output.
-[touch]
-swap_xy = false
-invert_x = false
-invert_y = false
+# Touch scaling is handled by libinput under Qt eglfs — no config needed here.
 EOF'
 
 echo "==> installing systemd unit"

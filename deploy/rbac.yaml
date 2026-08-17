@@ -2,7 +2,12 @@
 # Read-only access. The built-in `view` ClusterRole already grants get on
 # pods/log, which the log viewer needs, and grants no write verbs. Do not
 # replace this with a custom Role/ClusterRole that grants anything beyond
-# `view` — the dashboard has no mutating call anywhere in its codebase.
+# read verbs — the dashboard has no mutating call anywhere in its codebase.
+#
+# `view` does NOT cover cluster-scoped resources (nodes, namespaces) — a
+# plain `view` binding 403s on those, learned the hard way on the live
+# cluster. The extra ClusterRole below grants get/list on just those two,
+# nothing more.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -17,6 +22,28 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: view
+subjects:
+  - kind: ServiceAccount
+    name: kw-dashboard
+    namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kw-dashboard-cluster-scoped-read
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kw-dashboard-cluster-scoped-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kw-dashboard-cluster-scoped-read
 subjects:
   - kind: ServiceAccount
     name: kw-dashboard

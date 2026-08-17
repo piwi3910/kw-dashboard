@@ -1,4 +1,4 @@
-from kw_dashboard.ui.sorting import sort_namespaces, sort_pods, fmt_bytes
+from kw_dashboard.sorting import sort_namespaces, sort_pods, fmt_bytes
 from kw_dashboard.model import NsStat
 from kw_dashboard.sources.kube import PodInfo
 
