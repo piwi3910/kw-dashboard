@@ -1,0 +1,33 @@
+# deploy/kw-dashboard.service
+[Unit]
+Description=kw-dashboard (Qt/QML) on the HDMI panel
+After=network-online.target systemd-logind.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=piwi
+Group=piwi
+SupplementaryGroups=video render input tty
+PAMName=login
+WorkingDirectory=/home/piwi/kwq
+Environment=QT_QPA_PLATFORM=eglfs
+Environment=QT_QPA_EGLFS_INTEGRATION=eglfs_kms
+Environment=QT_QPA_EGLFS_HIDECURSOR=1
+Environment=QT_QPA_EGLFS_ALWAYS_SET_MODE=1
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PYTHONUNBUFFERED=1
+TTYPath=/dev/tty2
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=no
+StandardInput=tty-force
+StandardOutput=journal
+StandardError=journal
+ExecStartPre=/usr/bin/chvt 2
+ExecStart=/usr/bin/python3 -m kw_dashboard.qt.main --config /home/piwi/kwdash/config.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
