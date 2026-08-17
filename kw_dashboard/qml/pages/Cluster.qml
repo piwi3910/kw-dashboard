@@ -305,7 +305,14 @@ Rectangle {
             x: 0; width: statRow.colW; height: 92
             readonly property real display: bridge.clusterCpu
             readonly property color c: Theme.stateColor(display)
-            Text { id: cpuLbl; text: "CPU utilisation"; anchors { left: parent.left; top: parent.top; margins: 8 }; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text {
+                id: cpuLbl
+                text: "CPU utilisation"
+                anchors { left: parent.left; top: parent.top; margins: 8 }
+                color: Theme.dim
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.tableText
+            }
             Text {
                 anchors { left: parent.left; top: cpuLbl.bottom; leftMargin: 8; topMargin: 2 }
                 text: parent.display.toFixed(1) + "%"
@@ -313,7 +320,12 @@ Rectangle {
                 font.family: Theme.monoFamily
                 font.pixelSize: Theme.statNumber
             }
-            Sparkline { anchors { left: parent.left; right: parent.right; bottom: parent.bottom }; height: 26; history: bridge.cpuHistory; lineColor: parent.c }
+            Sparkline {
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                height: 26
+                history: bridge.cpuHistory
+                lineColor: parent.c
+            }
         }
 
         // Memory utilisation
@@ -321,7 +333,14 @@ Rectangle {
             x: statRow.colW + 8; width: statRow.colW; height: 92
             readonly property real display: bridge.clusterMem
             readonly property color c: Theme.stateColor(display)
-            Text { id: memLbl; text: "Memory utilisation"; anchors { left: parent.left; top: parent.top; margins: 8 }; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text {
+                id: memLbl
+                text: "Memory utilisation"
+                anchors { left: parent.left; top: parent.top; margins: 8 }
+                color: Theme.dim
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.tableText
+            }
             Text {
                 anchors { left: parent.left; top: memLbl.bottom; leftMargin: 8; topMargin: 2 }
                 text: parent.display.toFixed(1) + "%"
@@ -329,13 +348,25 @@ Rectangle {
                 font.family: Theme.monoFamily
                 font.pixelSize: Theme.statNumber
             }
-            Sparkline { anchors { left: parent.left; right: parent.right; bottom: parent.bottom }; height: 26; history: bridge.memHistory; lineColor: parent.c }
+            Sparkline {
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                height: 26
+                history: bridge.memHistory
+                lineColor: parent.c
+            }
         }
 
         // Pods running
         PanelBg {
             x: (statRow.colW + 8) * 2; width: statRow.colW; height: 92
-            Text { id: podsLbl; text: "Pods running"; anchors { left: parent.left; top: parent.top; margins: 8 }; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text {
+                id: podsLbl
+                text: "Pods running"
+                anchors { left: parent.left; top: parent.top; margins: 8 }
+                color: Theme.dim
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.tableText
+            }
             Text {
                 anchors { left: parent.left; top: podsLbl.bottom; leftMargin: 8; topMargin: 2 }
                 text: bridge.podsRunning
@@ -363,7 +394,14 @@ Rectangle {
         PanelBg {
             x: (statRow.colW + 8) * 3; width: statRow.colW; height: 92
             readonly property color c: page.notReadyCount > 0 ? Theme.crit : (page.cordonedCount > 0 ? Theme.warn : Theme.ok)
-            Text { id: nodesLbl; text: "Nodes ready"; anchors { left: parent.left; top: parent.top; margins: 8 }; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text {
+                id: nodesLbl
+                text: "Nodes ready"
+                anchors { left: parent.left; top: parent.top; margins: 8 }
+                color: Theme.dim
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.tableText
+            }
             Text {
                 anchors { left: parent.left; top: nodesLbl.bottom; leftMargin: 8; topMargin: 2 }
                 text: page.readyCount + " / " + page.nodes.length
