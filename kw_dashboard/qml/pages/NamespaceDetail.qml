@@ -15,14 +15,21 @@ import "../"
 // PAGE HEIGHT BUDGET (1280x720), y ranges absolute:
 //   breadcrumb    0 ..  84  (84, holds Main.qml's back button)
 //   gap          84 ..  88  (4)
-//   pods panel   88 .. 684  (596)
-// Panel height budget (596):
+//   pods panel   88 .. 88+panelH   CONTENT-SIZED (200 .. 589)
+// Panel height budget:
 //   title bar     0 ..  28
 //   1px rule     28 ..  29
 //   col header   29 ..  54  (25)
 //   1px rule     54 ..  55
-//   list         55 .. 590  (535, clipped, 33px rows -> 16 fit, scrolls)
-//   slack       590 .. 596  (6)
+//   list         55 .. 55 + rows*33   (clipped, scrolls past 16 rows)
+//   slack         6
+// It was a fixed 596 with a 535px list, which left a namespace with two pods
+// showing a 470px void inside the frame — the same defect PodDetail had. Now
+// panelH = 55 + min(N, 16)*33 + 6, so 16 pods fill the page (589, bottom 677)
+// and 2 pods give a compact 127px panel that reads as "that is all there is".
+// While loading / empty / failed there are no rows to size to, so it holds a
+// fixed 200 for the centred message. Nothing was added below it: the reclaimed
+// space is deliberately empty, since a pod list is all this view is about.
 // Column x budget (panel-local, rows are panel width - 12 for the
 // scrollbar): pod 8 (560) | phase 576 (170) | ready 754 (100,r)
 //   | restarts 862 (160,r) | node 1030 (214) -> ends 1244
@@ -39,6 +46,11 @@ Rectangle {
 
     readonly property var errs: bridge.errors || ({})
     readonly property string fetchError: (loaded && podList.length === 0 && errs["kube"]) ? String(errs["kube"]) : ""
+
+    readonly property int maxRows: 16
+    readonly property int shownRows: Math.min(sortedPods.length, maxRows)
+    readonly property int listH: shownRows * rowH
+    readonly property int panelH: shownRows > 0 ? 55 + listH + 6 : 200
 
     readonly property var sortedPods: {
         var list = page.podList.slice()
@@ -79,11 +91,11 @@ Rectangle {
         x: 8
         y: 88
         width: 1264
-        height: 596
+        height: page.panelH
         title: "Pods"
         note: !page.loaded ? "loading…"
             : (page.fetchError.length > 0 ? "fetch failed"
-               : page.sortedPods.length + " rows" + (page.sortedPods.length > 16 ? " · scroll" : ""))
+               : page.sortedPods.length + " rows" + (page.sortedPods.length > page.maxRows ? " · scroll" : ""))
         noteColor: page.fetchError.length > 0 ? Theme.crit : Theme.dimmer
 
         Item {
@@ -102,7 +114,7 @@ Rectangle {
             x: 0
             y: 55
             width: podsPanel.width
-            height: 535
+            height: page.listH
             clip: true
             spacing: 0
             model: page.sortedPods

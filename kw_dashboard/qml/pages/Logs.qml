@@ -22,7 +22,21 @@ import "../"
 //   list         33 .. 506  (473, clipped, rows are content-sized)
 //   slack       506 .. 512  (6)
 // Column x budget (list-local, rows are list width - 12 for the scrollbar):
-//   ts 0 (290) | level 304 (70) | message 388 (rest, wrapped)
+//   ts 0 (tsW, measured) | level tsW+14 (levelW) | message (rest, wrapped)
+// Both leading columns are sized, not hardcoded:
+//   * tsW is a TextMetrics measurement of "00:00:00.000" — the timestamp is
+//     rendered as TIME OF DAY only. The full ISO stamp did not fit and elided
+//     to "2026-08-17T13:10:05.959…", which spent 290px to hide the one part
+//     that matters. On a live tail every line is from today, so the date is
+//     noise. The underlying data is untouched; this is display only.
+//   * levelW collapses to 0 when NO line in the buffer parses a leading level
+//     word, and the message column absorbs it. Real logs from this cluster
+//     carry severity INSIDE the message (`[RUNNER … INFO Terminal]`), which is
+//     the application's own format — we refuse to guess severity from a
+//     substring (mis-reporting it would be worse than not showing it), so the
+//     column would otherwise sit empty and waste ~250px. Whenever at least one
+//     line does have a real leading level, the column comes back at full width
+//     so the levels stay aligned with each other.
 Rectangle {
     id: page
     anchors.fill: parent
@@ -39,6 +53,40 @@ Rectangle {
     // A failed fetch and an empty container must never look the same.
     readonly property var errs: bridge.errors || ({})
     readonly property string fetchError: (loaded && lines.length === 0 && errs["kube"]) ? String(errs["kube"]) : ""
+
+    // One regex, used both for the per-row split and for the "does anything in
+    // this buffer have a level at all?" question below, so the column can never
+    // disagree with the rows it is sizing for.
+    // Built with `new RegExp` rather than a literal: a binding that starts with
+    // `/` is asking the QML parser to disambiguate regex from division.
+    readonly property var levelRe: new RegExp("^(\\S+)\\s+(INFO|WARN|ERROR|DEBUG)\\s+(.*)$")
+
+    // Computed over the WHOLE buffer rather than just the rows on screen: a
+    // width that changed as you scrolled would make the columns jump under the
+    // reader's eye, which is worse than the wasted space it saves.
+    readonly property bool hasLevels: {
+        for (var i = 0; i < page.lines.length; i++)
+            if (page.levelRe.test(page.lines[i])) return true
+        return false
+    }
+    readonly property int tsW: Math.ceil(tsMetrics.width) + 2
+    readonly property int levelW: hasLevels ? 70 : 0
+    readonly property int msgX: tsW + 14 + (levelW > 0 ? levelW + 14 : 0)
+
+    TextMetrics {
+        id: tsMetrics
+        font.family: Theme.monoFamily
+        font.pixelSize: Theme.mono
+        text: "00:00:00.000"
+    }
+
+    // Time of day, milliseconds kept (log lines land inside the same second
+    // often enough that dropping them would lose the ordering cue). A stamp
+    // that is not ISO-with-a-T is shown as-is rather than mangled.
+    function fmtTime(ts) {
+        var m = /T(\d{2}:\d{2}:\d{2})(\.\d{1,3})?/.exec(ts)
+        return m ? m[1] + (m[2] ? m[2] : "") : ts
+    }
 
     function refreshLines() {
         page.lines = bridge.logLines() || []
@@ -104,7 +152,7 @@ Rectangle {
                 readonly property var parsed: {
                     // Kubelet prefixes "<RFC3339> <raw line>"; the container's
                     // own text may or may not carry a level word.
-                    var m = /^(\S+)\s+(INFO|WARN|ERROR|DEBUG)\s+(.*)$/.exec(modelData)
+                    var m = page.levelRe.exec(modelData)
                     if (m) return { "ts": m[1], "level": m[2], "msg": m[3] }
                     var sp = modelData.indexOf(" ")
                     if (sp < 0) return { "ts": modelData, "level": "", "msg": "" }
@@ -114,15 +162,16 @@ Rectangle {
                     : (parsed.level === "WARN" ? Theme.warn : Theme.dim)
 
                 Text {
-                    x: 0; y: 0; width: 290; height: 26
-                    text: lrow.parsed.ts
+                    x: 0; y: 0; width: page.tsW; height: 26
+                    text: page.fmtTime(lrow.parsed.ts)
                     color: Theme.dim
                     font.family: Theme.monoFamily
                     font.pixelSize: Theme.mono
                     elide: Text.ElideRight
                 }
                 Text {
-                    x: 304; y: 0; width: 70; height: 26
+                    visible: page.levelW > 0
+                    x: page.tsW + 14; y: 0; width: page.levelW; height: 26
                     text: lrow.parsed.level
                     color: lrow.levelColor
                     font.family: Theme.monoFamily
@@ -130,8 +179,8 @@ Rectangle {
                 }
                 Text {
                     id: msgText
-                    x: 388; y: 0
-                    width: lrow.width - 388
+                    x: page.msgX; y: 0
+                    width: lrow.width - page.msgX
                     text: lrow.parsed.msg
                     color: Theme.fg
                     font.family: Theme.monoFamily
