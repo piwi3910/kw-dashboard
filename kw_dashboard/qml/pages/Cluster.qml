@@ -475,6 +475,13 @@ Rectangle {
     //   gutter  x   8 ..  58  (50)   y-axis labels only, right-aligned
     //   plot    x  62 .. 528  (466)  clipped canvas, axes drawn inside
     //   legend  x 538 .. 938  (400)  header 33..54, rows 55..207 (8 x 19)
+    // Legend columns inside that 400px, dash 0(10) then name 16(136) then
+    // min 152(62) max 214(62) mean 276(62) last 338(62) = 400. The name gets
+    // 136px because a full node name ("master-11", "worker-21") is 9 chars
+    // of 20px IBM Plex Sans at ~11px average advance = ~100px; 136 clears
+    // that with 36px spare, so no name is ever truncated. The numeric cells
+    // need only 5 mono chars ("100.0" = 5 x 12 = 60px), so 62px each is
+    // enough and right-alignment keeps every column under its header.
     // 8 + 50 + 4 + 466 + 10 + 400 + 8 = 946 = panel width.
     PanelFrame {
         id: heroPanel
@@ -631,11 +638,11 @@ Rectangle {
             // header row (legend-local y 0..21)
             Item {
                 x: 0; y: 0; width: 400; height: 21
-                Text { x: 0;   y: 0; width: 106; height: 21; verticalAlignment: Text.AlignVCenter; text: "series"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
-                Text { x: 112; y: 0; width: 70;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "min";  color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
-                Text { x: 182; y: 0; width: 70;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "max";  color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
-                Text { x: 252; y: 0; width: 70;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "mean"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
-                Text { x: 322; y: 0; width: 78;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "last"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 0;   y: 0; width: 146; height: 21; verticalAlignment: Text.AlignVCenter; text: "series"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                Text { x: 152; y: 0; width: 62;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "min";  color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 214; y: 0; width: 62;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "max";  color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 276; y: 0; width: 62;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "mean"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 338; y: 0; width: 62;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "last"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
             }
             Rectangle { x: 0; y: 21; width: 400; height: 1; color: Theme.bgAlt }
 
@@ -670,18 +677,21 @@ Rectangle {
                             color: page.seriesColor(index)
                         }
                         Text {
-                            x: 16; y: 0; width: 90; height: heroPanel.rowH
+                            x: 16; y: 0; width: 136; height: heroPanel.rowH
                             verticalAlignment: Text.AlignVCenter
                             text: modelData.name || ""
                             color: lrow.txt
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.tableText
-                            elide: Text.ElideRight
+                            // ElideMiddle, never ElideRight: the trailing
+                            // digits are what identify the node, so they must
+                            // survive even if a name ever exceeds 136px.
+                            elide: Text.ElideMiddle
                         }
-                        Text { x: 112; y: 0; width: 70; height: heroPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.num(modelData.min);  color: lrow.txt; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
-                        Text { x: 182; y: 0; width: 70; height: heroPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.num(modelData.max);  color: lrow.txt; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
-                        Text { x: 252; y: 0; width: 70; height: heroPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.num(modelData.mean); color: lrow.txt; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
-                        Text { x: 322; y: 0; width: 78; height: heroPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.num(modelData.last); color: lrow.over ? Theme.warn : Theme.fgBright; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                        Text { x: 152; y: 0; width: 62; height: heroPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.num(modelData.min);  color: lrow.txt; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                        Text { x: 214; y: 0; width: 62; height: heroPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.num(modelData.max);  color: lrow.txt; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                        Text { x: 276; y: 0; width: 62; height: heroPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.num(modelData.mean); color: lrow.txt; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                        Text { x: 338; y: 0; width: 62; height: heroPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.num(modelData.last); color: lrow.over ? Theme.warn : Theme.fgBright; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
                     }
                 }
             }
@@ -1046,7 +1056,12 @@ Rectangle {
     //   tx row      281 .. 307  (26)
     //   slack       307 .. 316  (9)
     // Column x budget (panel-local, 8..302):
-    //   series 8 (84) | mean 96 (90,r) | last 192 (110,r)
+    //   series 8 (66) | mean 82 (90,r) | last 192 (110,r)
+    // Right edges 172 and 302 already put each value under its own header;
+    // the series column gives up 18px so the widest "mean" (60px, ending at
+    // 172) and the widest "last" ("1410.6 MB/s", 132px... clamped by elide
+    // to the 110px cell starting at 192) are 20px apart instead of 8, so
+    // "23.6" and "10.8 MB/s" can no longer read as one run of digits.
     PanelFrame {
         id: netPanel
         x: page.colRightX
@@ -1129,8 +1144,8 @@ Rectangle {
         // needs the full 110px "last" column not to collide with "mean".
         Item {
             x: 0; y: 229; width: netPanel.width; height: 22
-            Text { x: 8;   y: 0; width: 84;  height: 22; verticalAlignment: Text.AlignVCenter; text: "series"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
-            Text { x: 96;  y: 0; width: 90;  height: 22; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "mean"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+            Text { x: 8;   y: 0; width: 66;  height: 22; verticalAlignment: Text.AlignVCenter; text: "series"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text { x: 82;  y: 0; width: 90;  height: 22; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "mean"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
             Text { x: 192; y: 0; width: 110; height: 22; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "last"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
         }
 
@@ -1151,7 +1166,7 @@ Rectangle {
                     color: page.seriesColor(index === 0 ? 1 : 3)
                 }
                 Text {
-                    x: 24; y: 0; width: 68; height: 26
+                    x: 24; y: 0; width: 50; height: 26
                     verticalAlignment: Text.AlignVCenter
                     text: index === 0 ? "rx" : "tx"
                     color: Theme.fgMuted
@@ -1159,7 +1174,7 @@ Rectangle {
                     font.pixelSize: Theme.tableText
                 }
                 Text {
-                    x: 96; y: 0; width: 90; height: 26
+                    x: 82; y: 0; width: 90; height: 26
                     horizontalAlignment: Text.AlignRight
                     verticalAlignment: Text.AlignVCenter
                     text: nrow.s.length > 0 ? page.fmtRateNoUnit(nrow.s[0].mean) : "—"
