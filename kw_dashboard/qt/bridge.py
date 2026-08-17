@@ -24,6 +24,14 @@ def _node_dict(n) -> dict:
         "cpuPct": n.cpu_pct, "memPct": n.mem_pct,
         "tempC": n.temp_c if n.temp_c is not None else -1,
         "pods": n.pods, "worstPct": n.worst_pct,
+        "uptimeDays": n.uptime_days if n.uptime_days is not None else None,
+    }
+
+
+def _series_dict(s: dict) -> dict:
+    return {
+        "name": s["name"], "points": [list(p) for p in s["points"]],
+        "min": s["min"], "max": s["max"], "mean": s["mean"], "last": s["last"],
     }
 
 
@@ -137,6 +145,24 @@ class Bridge(QObject):
                            notify=snapshotChanged)
     errors = pyqtProperty('QVariant', lambda self: dict(self._snap().errors),
                            notify=snapshotChanged)
+    nodeCpuSeries = pyqtProperty('QVariant',
+                                  lambda self: [_series_dict(s) for s in self._snap().node_cpu_series],
+                                  notify=snapshotChanged)
+    nodeMemSeries = pyqtProperty('QVariant',
+                                  lambda self: [_series_dict(s) for s in self._snap().node_mem_series],
+                                  notify=snapshotChanged)
+    nsMemSeries = pyqtProperty('QVariant',
+                                lambda self: [_series_dict(s) for s in self._snap().ns_mem_series],
+                                notify=snapshotChanged)
+    netRxSeries = pyqtProperty('QVariant',
+                                lambda self: [_series_dict(s) for s in self._snap().net_rx_series],
+                                notify=snapshotChanged)
+    netTxSeries = pyqtProperty('QVariant',
+                                lambda self: [_series_dict(s) for s in self._snap().net_tx_series],
+                                notify=snapshotChanged)
+    timeRangeLabel = pyqtProperty(str, lambda self: "Last 1 hour", notify=snapshotChanged)
+    alertsFiring = pyqtProperty(int, lambda self: len(self._snap().alerts),
+                                 notify=snapshotChanged)
 
     def _stale(self) -> bool:
         snap, now = self._snap(), time.time()

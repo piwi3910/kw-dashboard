@@ -5,6 +5,13 @@ import threading, time
 from collections import Counter, deque
 from dataclasses import replace
 from .model import Snapshot, NsStat, merge_node_stats
+from .series import stats, downsample
+from .sources.kube import build_ip_map
+from .sources.prometheus import RANGE_QUERIES
+
+RANGE_WINDOW_SECONDS = 3600
+RANGE_STEP_SECONDS = 60
+RANGE_MAX_POINTS = 120
 
 
 def is_stale(snap: Snapshot, source: str, limit: float, now: float | None = None) -> bool:
@@ -73,7 +80,8 @@ class Collector:
         stats = merge_node_stats(
             nodes, self.prom.query_named("node_cpu"),
             self.prom.query_named("node_mem"),
-            self.prom.query_named("node_temp"), counts)
+            self.prom.query_named("node_temp"), counts,
+            uptime=self.prom.query_named("node_uptime_days"))
 
         ns_cpu = {s.labels.get("namespace"): s.value for s in self.prom.query_named("ns_cpu")}
         ns_mem = {s.labels.get("namespace"): s.value for s in self.prom.query_named("ns_mem")}
@@ -98,6 +106,53 @@ class Collector:
             self._mark("kube")
         except Exception as e:
             self._mark("kube", str(e))
+        # Range queries are heavy; keep them on the slow loop and isolate their
+        # failure so a dead range endpoint doesn't stale out instant metrics.
+        try:
+            self._poll_series()
+            self._mark("series")
+        except Exception as e:
+            self._mark("series", str(e))
+
+    def _series_dicts(self, series_list, name_map=None) -> tuple:
+        """Turn Series into the {name, points, min, max, mean, last} dicts the
+        UI expects, downsampled for display."""
+        out = []
+        for s in series_list:
+            if name_map is not None:
+                name = name_map.get(s.labels.get("instance", ""))
+                if name is None:
+                    continue
+            else:
+                name = s.labels.get("namespace") or s.labels.get("instance") or ""
+            pts = downsample(s.points, RANGE_MAX_POINTS)
+            st = stats(pts)
+            out.append({"name": name, "points": pts,
+                        "min": st.min, "max": st.max, "mean": st.mean, "last": st.last})
+        return tuple(out)
+
+    def _poll_series(self):
+        end = time.time()
+        start = end - RANGE_WINDOW_SECONDS
+        nodes = self.kube.list_nodes()
+        ip_map = build_ip_map(nodes)
+
+        node_cpu = self.prom.query_range(self._range_query("node_cpu"), start, end, RANGE_STEP_SECONDS)
+        node_mem = self.prom.query_range(self._range_query("node_mem"), start, end, RANGE_STEP_SECONDS)
+        ns_mem = self.prom.query_range(self._range_query("ns_mem"), start, end, RANGE_STEP_SECONDS)
+        net_rx = self.prom.query_range(self._range_query("net_rx"), start, end, RANGE_STEP_SECONDS)
+        net_tx = self.prom.query_range(self._range_query("net_tx"), start, end, RANGE_STEP_SECONDS)
+
+        self._update(
+            node_cpu_series=self._series_dicts(node_cpu, name_map=ip_map),
+            node_mem_series=self._series_dicts(node_mem, name_map=ip_map),
+            ns_mem_series=self._series_dicts(ns_mem),
+            net_rx_series=self._series_dicts(net_rx),
+            net_tx_series=self._series_dicts(net_tx))
+
+    @staticmethod
+    def _range_query(name: str) -> str:
+        return RANGE_QUERIES[name]
 
     def _run(self):
         last_slow = 0.0

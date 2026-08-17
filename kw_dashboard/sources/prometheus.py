@@ -11,6 +11,12 @@ class Sample:
     value: float
 
 
+@dataclass(frozen=True)
+class Series:
+    labels: dict
+    points: tuple  # ((timestamp, value), ...)
+
+
 # Verified working. node-exporter labels by `instance` (IP:9100), NOT node name;
 # callers join to node names via the IP map from kube.py.
 QUERIES = {
@@ -26,6 +32,17 @@ QUERIES = {
     "pod_restarts": 'sum by(namespace,pod)(kube_pod_container_status_restarts_total)',
     "net_rx": 'sum(rate(container_network_receive_bytes_total[2m]))',
     "net_tx": 'sum(rate(container_network_transmit_bytes_total[2m]))',
+    "node_uptime_days": '(time() - node_boot_time_seconds)/86400',
+}
+
+# Range-query PromQL for time-series charts. Heavier than instant queries;
+# callers should poll these on the slow interval.
+RANGE_QUERIES = {
+    "node_cpu": QUERIES["node_cpu"],
+    "node_mem": QUERIES["node_mem"],
+    "ns_mem": QUERIES["ns_mem"],
+    "net_rx": QUERIES["net_rx"],
+    "net_tx": QUERIES["net_tx"],
 }
 
 
@@ -45,6 +62,29 @@ def parse_vector(payload: dict) -> list[Sample]:
     return out
 
 
+def parse_matrix(payload: dict) -> list[Series]:
+    """Turn a range-query response into Series, dropping non-finite points and
+    tolerating malformed entries (matching parse_vector's behaviour)."""
+    if payload.get("status") != "success":
+        raise ValueError(f"prometheus error: {payload.get('error')}")
+    out = []
+    for item in payload.get("data", {}).get("result", []):
+        raw_values = item.get("values")
+        if not isinstance(raw_values, list):
+            continue
+        points = []
+        for pair in raw_values:
+            try:
+                ts, v = float(pair[0]), float(pair[1])
+            except (TypeError, IndexError, ValueError):
+                continue
+            if not (math.isfinite(ts) and math.isfinite(v)):
+                continue
+            points.append((ts, v))
+        out.append(Series(labels=dict(item.get("metric", {})), points=tuple(points)))
+    return out
+
+
 class PrometheusClient:
     def __init__(self, base_url: str, timeout: float = 8.0):
         self.base_url = base_url.rstrip("/")
@@ -61,3 +101,9 @@ class PrometheusClient:
     def scalar(self, name: str, default: float = 0.0) -> float:
         s = self.query_named(name)
         return s[0].value if s else default
+
+    def query_range(self, promql: str, start: float, end: float, step: float) -> list[Series]:
+        payload = get_json(f"{self.base_url}/api/v1/query_range",
+                           params={"query": promql, "start": start, "end": end, "step": step},
+                           timeout=self.timeout)
+        return parse_matrix(payload)
