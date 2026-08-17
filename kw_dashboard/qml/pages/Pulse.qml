@@ -1,195 +1,489 @@
 import QtQuick 2.15
+import QtQuick.Controls 2.15
 import "../"
 
-// Throughput + CPU trend + recent-events feed. Content is distributed down
-// the FULL panel height on purpose — an earlier cut wasted the bottom half.
+// Pulse — network throughput and per-namespace memory, in the 5a
+// observability idiom (breadcrumb + bordered panels + axis gutters +
+// min/max/mean/last legends). Structure copied from Cluster.qml: explicit
+// pixel geometry, no nested layouts, `clip: true` on every plot and list.
+//
+// PAGE HEIGHT BUDGET (1280x720), y ranges absolute:
+//   breadcrumb     0 ..  34  (34)
+//   gap           34 ..  42  (8)
+//   stat row      42 .. 122  (80)   4 cards x 310, gaps 8
+//   net panel    126 .. 404  (278)  left column
+//   ns mem panel 408 .. 684  (276)  left column
+//   events panel 126 .. 684  (558)  right column, full remaining height
+//   page dots    688 .. 704         drawn by Main.qml at z:100 — content
+//                                   stops at 684, 4px clear.
+// Columns: 8px gutter; left x 8 w 946, right x 962 w 310 (ends 1272).
 Rectangle {
-    id: root
+    id: page
     anchors.fill: parent
     color: Theme.bg
 
-    PageHeader {
-        id: header
-        title: "PULSE"
-        rightText: root.clockText
-    }
+    readonly property int pad: 8
+    readonly property int colLeftX: 8
+    readonly property int colLeftW: 946
+    readonly property int colRightX: 962
+    readonly property int colRightW: 310
+    readonly property int contentTop: 33
+
+    readonly property var netRxSeries: bridge.netRxSeries || []
+    readonly property var netTxSeries: bridge.netTxSeries || []
+    readonly property var nsMemSeries: bridge.nsMemSeries || []
+    readonly property var events: bridge.events || []
+    readonly property string timeRangeLabel: bridge.timeRangeLabel || "Last 1 hour"
 
     property string clockText: Qt.formatTime(new Date(), "hh:mm")
-    Timer { interval: 1000; running: true; repeat: true; onTriggered: root.clockText = Qt.formatTime(new Date(), "hh:mm") }
+    Timer { interval: 1000; running: true; repeat: true; onTriggered: page.clockText = Qt.formatTime(new Date(), "hh:mm") }
 
-    // ---- stat row: NET RX / NET TX / WARN EVENTS ----------------------
-    // Values use Theme.big rather than Theme.huge: at huge (120px) the two
-    // "N.N MB/s" strings alone run past 1280px combined with the WARN
-    // EVENTS column, pushing it off the right edge. Theme.big keeps the
-    // row comfortably inside the 1280px canvas with room to spare.
-    Row {
-        id: stats
-        anchors.left: parent.left
-        anchors.top: header.bottom
-        anchors.topMargin: 28
-        anchors.leftMargin: 24
-        spacing: 64
-
-        Column {
-            spacing: 4
-            Text {
-                text: (root.netRxMB).toFixed(1) + " MB/s"
-                color: Theme.fgBright
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.big
-            }
-            Text { text: "NET RX"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.small }
-        }
-        Column {
-            spacing: 4
-            Text {
-                text: (root.netTxMB).toFixed(1) + " MB/s"
-                color: Theme.fgBright
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.big
-            }
-            Text { text: "NET TX"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.small }
-        }
-        Column {
-            spacing: 4
-            Text {
-                text: root.warnCount
-                color: root.warnCount > 0 ? Theme.warn : Theme.fg
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.big
-            }
-            Text { text: "WARN EVENTS"; color: Theme.dim; font.family: Theme.fontFamily; font.pixelSize: Theme.small }
-        }
-    }
-
-    readonly property real netRxMB: bridge.netRx / 1e6
-    readonly property real netTxMB: bridge.netTx / 1e6
     readonly property int warnCount: {
         var n = 0
-        var evs = bridge.events || []
-        for (var i = 0; i < evs.length; i++) if (evs[i].warning) n++
+        for (var i = 0; i < page.events.length; i++) if (page.events[i].warning) n++
         return n
     }
 
-    // ---- CPU sparkline, given real vertical room -----------------------
-    Item {
-        id: sparkArea
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: stats.bottom
-        anchors.topMargin: 20
-        anchors.leftMargin: 24
-        anchors.rightMargin: 24
-        height: 180
+    function fmtRate(v) {
+        var b = v || 0
+        if (b >= 1e6) return (b / 1e6).toFixed(1) + " MB/s"
+        if (b >= 1e3) return (b / 1e3).toFixed(1) + " KB/s"
+        return Math.round(b) + " B/s"
+    }
+    function fmtRateShort(v) {
+        var b = v || 0
+        if (b >= 1e6) return (b / 1e6).toFixed(1) + "M"
+        if (b >= 1e3) return (b / 1e3).toFixed(1) + "K"
+        return Math.round(b) + ""
+    }
+    function fmtMemShort(v) {
+        var b = v || 0
+        if (b >= 1e9) return (b / 1e9).toFixed(1) + "G"
+        if (b >= 1e6) return Math.round(b / 1e6) + "M"
+        if (b >= 1e3) return Math.round(b / 1e3) + "K"
+        return Math.round(b) + ""
+    }
+    function seriesColor(i) {
+        var c = Theme.seriesColors
+        return c[i % c.length]
+    }
 
-        Canvas {
-            id: spark
-            anchors.fill: parent
-            property var hist: bridge.cpuHistory || []
-            onHistChanged: requestPaint()
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-            onPaint: {
-                var ctx = getContext("2d")
-                ctx.reset()
-                var h = hist
-                if (h.length < 2) return
-                var w = width, ht = height
-                // Leave headroom top and bottom so peaks/troughs never touch
-                // the edges of the band — a large, clearly-shaped chart
-                // rather than a thin line lost in empty space.
-                var pad = 12
-
-                function y(v) { return pad + (ht - pad * 2) - (Math.max(0, Math.min(100, v)) / 100) * (ht - pad * 2) }
-
-                var grad = ctx.createLinearGradient(0, 0, 0, ht)
-                grad.addColorStop(0, Qt.rgba(0.223, 0.529, 0.898, 0.30))
-                grad.addColorStop(1, Qt.rgba(0.223, 0.529, 0.898, 0))
-
+    // Shared plot painter: one polyline per series against a fixed max, with
+    // three horizontal guides. Single-point series draw a short level dash so
+    // "one sample so far" never looks like "no data".
+    function paintSeries(ctx, w, h, list, maxV, colorFn) {
+        ctx.reset()
+        ctx.strokeStyle = Theme.border
+        ctx.lineWidth = 1
+        var gy = [0.5, Math.round(h / 2) + 0.5, h - 0.5]
+        for (var g = 0; g < gy.length; g++) {
+            ctx.beginPath(); ctx.moveTo(0, gy[g]); ctx.lineTo(w, gy[g]); ctx.stroke()
+        }
+        if (!list || list.length === 0 || maxV <= 0) return
+        for (var i = 0; i < list.length; i++) {
+            var pts = list[i].points || []
+            if (pts.length === 0) continue
+            ctx.strokeStyle = colorFn(i)
+            ctx.lineWidth = 2
+            ctx.lineJoin = "round"
+            ctx.lineCap = "round"
+            if (pts.length === 1) {
+                var yy = h - (Math.max(0, Math.min(maxV, pts[0][1])) / maxV) * h
+                ctx.beginPath(); ctx.moveTo(w * 0.5 - 8, yy); ctx.lineTo(w * 0.5 + 8, yy); ctx.stroke()
+            } else {
+                var step = w / (pts.length - 1)
                 ctx.beginPath()
-                ctx.moveTo(0, y(h[0]))
-                for (var i = 1; i < h.length; i++)
-                    ctx.lineTo((i / (h.length - 1)) * w, y(h[i]))
-                ctx.lineTo(w, ht)
-                ctx.lineTo(0, ht)
-                ctx.closePath()
-                ctx.fillStyle = grad
-                ctx.fill()
-
-                ctx.strokeStyle = Theme.accent
-                ctx.lineWidth = 3
-                ctx.lineJoin = "round"
-                ctx.lineCap = "round"
-                ctx.beginPath()
-                for (var j = 0; j < h.length; j++) {
-                    var x = (j / (h.length - 1)) * w
-                    if (j === 0) ctx.moveTo(x, y(h[j]))
-                    else ctx.lineTo(x, y(h[j]))
-                }
+                ctx.moveTo(0, h - (Math.max(0, Math.min(maxV, pts[0][1])) / maxV) * h)
+                for (var j = 1; j < pts.length; j++)
+                    ctx.lineTo(j * step, h - (Math.max(0, Math.min(maxV, pts[j][1])) / maxV) * h)
                 ctx.stroke()
             }
         }
+    }
 
-        // A history array too short to plot (<2 points) used to leave the
-        // Canvas blank, which reads as a flat/dead line rather than "not
-        // enough data yet" — call it out explicitly instead.
-        Text {
-            anchors.centerIn: parent
-            visible: spark.hist.length < 2
-            text: "collecting…"
-            color: Theme.dim
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.small
+    function axisMax(list) {
+        var m = 0
+        for (var i = 0; i < list.length; i++)
+            if (list[i].max !== undefined) m = Math.max(m, list[i].max)
+        return m > 0 ? m * 1.2 : 1
+    }
+
+    // ==== breadcrumb 0..34 ================================================
+    PageHeader {
+        id: header
+        crumb: "pulse"
+        chips: [
+            { "text": "⏱ " + page.timeRangeLabel },
+            { "text": "🕘 " + page.clockText },
+            { "text": page.warnCount + (page.warnCount === 1 ? " warn event" : " warn events"),
+              "color": page.warnCount > 0 ? Theme.warn : Theme.fgMuted }
+        ]
+    }
+
+    // ==== stat row 42..122 (h 80) ========================================
+    StatCard {
+        x: page.pad; y: 42; width: 310; height: 80
+        label: "Network receive"
+        value: page.fmtRate(bridge.netRx)
+        valueColor: Theme.fgBright
+        note: page.netRxSeries.length > 0 ? "mean " + page.fmtRate(page.netRxSeries[0].mean) : "collecting…"
+    }
+    StatCard {
+        x: page.pad + 318; y: 42; width: 310; height: 80
+        label: "Network transmit"
+        value: page.fmtRate(bridge.netTx)
+        valueColor: Theme.fgBright
+        note: page.netTxSeries.length > 0 ? "mean " + page.fmtRate(page.netTxSeries[0].mean) : "collecting…"
+    }
+    StatCard {
+        x: page.pad + 636; y: 42; width: 310; height: 80
+        label: "Warning events"
+        value: String(page.warnCount)
+        valueColor: page.warnCount > 0 ? Theme.warn : Theme.fgBright
+        note: "of " + page.events.length + " recent"
+        noteColor: Theme.dim
+    }
+    StatCard {
+        x: page.pad + 954; y: 42; width: 310; height: 80
+        label: "Pods running"
+        value: String(bridge.podsRunning)
+        note: bridge.pendingPods + " pending" + (bridge.unhealthyPods > 0 ? " · " + bridge.unhealthyPods + " failing" : "")
+        noteColor: bridge.unhealthyPods > 0 ? Theme.crit : Theme.dim
+    }
+
+    // ==== network throughput 126..404 (h 278) ============================
+    //
+    // Panel height budget (278):
+    //   title bar     0 ..  28
+    //   1px rule     28 ..  29
+    //   plot         33 .. 183  (150, clipped)
+    //   legend hdr  187 .. 209  (22)
+    //   rx row      211 .. 237  (26)
+    //   tx row      239 .. 265  (26)
+    //   slack       265 .. 278  (13)
+    // Column x budget (panel-local): gutter 8 (64, right-aligned) |
+    //   plot 76 (862) -> 938. Legend: swatch 8 | name 24 (110) |
+    //   min 140 (150,r) | max 294 (150,r) | mean 448 (150,r) | last 602 (150,r)
+    Panel {
+        id: netPanel
+        x: page.colLeftX
+        y: 126
+        width: page.colLeftW
+        height: 278
+        title: "Network throughput"
+        note: page.timeRangeLabel
+
+        readonly property var list: {
+            var out = []
+            if (page.netRxSeries.length > 0) out.push(page.netRxSeries[0])
+            if (page.netTxSeries.length > 0) out.push(page.netTxSeries[0])
+            return out
+        }
+        readonly property bool hasData: list.length > 0
+        readonly property real maxV: page.axisMax(list)
+
+        Item {
+            x: 8; y: page.contentTop; width: 64; height: 150
+            clip: true
+            Text {
+                x: 0; y: 0; width: 64; height: 26
+                horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
+                text: page.fmtRateShort(netPanel.maxV)
+                color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
+            }
+            Text {
+                x: 0; y: 62; width: 64; height: 26
+                horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
+                text: page.fmtRateShort(netPanel.maxV / 2)
+                color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
+            }
+            Text {
+                x: 0; y: 124; width: 64; height: 26
+                horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
+                text: "0"
+                color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
+            }
+        }
+
+        Canvas {
+            id: netPlot
+            x: 76; y: page.contentTop; width: 862; height: 150
+            clip: true
+            antialiasing: true
+            renderStrategy: Canvas.Cooperative
+
+            readonly property var list: netPanel.list
+            readonly property real maxV: netPanel.maxV
+            onListChanged: requestPaint()
+            onMaxVChanged: requestPaint()
+            onWidthChanged: requestPaint()
+
+            onPaint: page.paintSeries(getContext("2d"), width, height, netPlot.list, netPlot.maxV,
+                                      function (i) { return page.seriesColor(i === 0 ? 1 : 3) })
+
+            Text {
+                anchors.centerIn: parent
+                visible: !netPanel.hasData
+                text: "no history\n" + page.fmtRate(bridge.netRx) + " rx, " + page.fmtRate(bridge.netTx) + " tx"
+                horizontalAlignment: Text.AlignHCenter
+                color: Theme.dimmer
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.tableText
+            }
+        }
+
+        Item {
+            x: 0; y: 187; width: netPanel.width; height: 22
+            Text { x: 24;  y: 0; width: 110; height: 22; verticalAlignment: Text.AlignVCenter; text: "series"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+            Text { x: 140; y: 0; width: 150; height: 22; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "min";  color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+            Text { x: 294; y: 0; width: 150; height: 22; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "max";  color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+            Text { x: 448; y: 0; width: 150; height: 22; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "mean"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+            Text { x: 602; y: 0; width: 150; height: 22; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "last"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+        }
+        Rectangle { x: 1; y: 209; width: netPanel.width - 2; height: 1; color: Theme.bgAlt }
+
+        Repeater {
+            model: 2
+            delegate: Item {
+                id: nrow
+                x: 0
+                y: 211 + index * 28
+                width: netPanel.width
+                height: 26
+
+                readonly property var s: index === 0 ? page.netRxSeries : page.netTxSeries
+                readonly property real live: index === 0 ? bridge.netRx : bridge.netTx
+                readonly property bool has: s.length > 0
+
+                Rectangle { x: 8; y: 11; width: 10; height: 3; radius: 1; color: page.seriesColor(index === 0 ? 1 : 3) }
+                Text {
+                    x: 24; y: 0; width: 110; height: 26
+                    verticalAlignment: Text.AlignVCenter
+                    text: index === 0 ? "receive" : "transmit"
+                    color: Theme.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText
+                }
+                Text { x: 140; y: 0; width: 150; height: 26; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: nrow.has ? page.fmtRate(nrow.s[0].min) : "—";  color: Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 294; y: 0; width: 150; height: 26; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: nrow.has ? page.fmtRate(nrow.s[0].max) : "—";  color: Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 448; y: 0; width: 150; height: 26; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: nrow.has ? page.fmtRate(nrow.s[0].mean) : "—"; color: Theme.fgMuted; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 602; y: 0; width: 150; height: 26; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.fmtRate(nrow.has ? nrow.s[0].last : nrow.live); color: Theme.fgBright; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+            }
         }
     }
 
-    // ---- recent events, fills the rest of the panel --------------------
-    Text {
-        id: feedTitle
-        text: "RECENT EVENTS"
-        color: Theme.dim
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.small
-        anchors.left: parent.left
-        anchors.top: sparkArea.bottom
-        anchors.topMargin: 16
-        anchors.leftMargin: 24
+    // ==== memory by namespace 408..684 (h 276) ===========================
+    //
+    // Panel height budget (276):
+    //   title bar     0 ..  28
+    //   1px rule     28 ..  29
+    //   body         33 .. 270  (237)
+    //   slack       270 .. 276  (6)
+    // Body split horizontally so an 8-row legend and the plot both get their
+    // full height (the same reason Cluster's hero chart does it this way):
+    //   gutter  x   8 ..  72  (64,r)
+    //   plot    x  76 .. 416  (340, clipped)
+    //   legend  x 426 .. 938  (512) header 0..21, rows 22..174 (8 x 19)
+    // Legend columns (legend-local): swatch 0 | name 16 (200) |
+    //   min 220 (70,r) | max 294 (70,r) | mean 368 (70,r) | last 442 (70,r)
+    // Namespace names get 200px at 20px sans (~19 chars) so the name that
+    // distinguishes one series from another is never elided away.
+    Panel {
+        id: nsPanel
+        x: page.colLeftX
+        y: 408
+        width: page.colLeftW
+        height: 276
+        title: "Memory by namespace"
+        note: page.nsMemSeries.length + " series"
+
+        readonly property var list: page.nsMemSeries
+        readonly property bool hasData: list.length > 0
+        readonly property real maxV: page.axisMax(list)
+        readonly property int rowH: 19
+        readonly property int maxRows: 8
+        readonly property int shownRows: list.length > maxRows ? maxRows - 1 : maxRows
+
+        Item {
+            x: 8; y: page.contentTop; width: 64; height: 237
+            clip: true
+            Text {
+                x: 0; y: 0; width: 64; height: 26
+                horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
+                text: page.fmtMemShort(nsPanel.maxV)
+                color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
+            }
+            Text {
+                x: 0; y: 105; width: 64; height: 26
+                horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
+                text: page.fmtMemShort(nsPanel.maxV / 2)
+                color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
+            }
+            Text {
+                x: 0; y: 211; width: 64; height: 26
+                horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
+                text: "0"
+                color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
+            }
+        }
+
+        Canvas {
+            id: nsPlot
+            x: 76; y: page.contentTop; width: 340; height: 237
+            clip: true
+            antialiasing: true
+            renderStrategy: Canvas.Cooperative
+
+            readonly property var list: nsPanel.list
+            readonly property real maxV: nsPanel.maxV
+            onListChanged: requestPaint()
+            onMaxVChanged: requestPaint()
+            onWidthChanged: requestPaint()
+
+            onPaint: page.paintSeries(getContext("2d"), width, height, nsPlot.list, nsPlot.maxV, page.seriesColor)
+
+            Text {
+                anchors.centerIn: parent
+                visible: !nsPanel.hasData
+                text: "no data"
+                color: Theme.dimmer
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.glance
+            }
+        }
+
+        Item {
+            id: nsLegend
+            x: 426; y: page.contentTop; width: 512; height: 237
+            clip: true
+
+            Item {
+                x: 0; y: 0; width: 512; height: 21
+                Text { x: 16;  y: 0; width: 200; height: 21; verticalAlignment: Text.AlignVCenter; text: "namespace"; color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText }
+                Text { x: 220; y: 0; width: 70;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "min";  color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 294; y: 0; width: 70;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "max";  color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 368; y: 0; width: 70;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "mean"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                Text { x: 442; y: 0; width: 70;  height: 21; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: "last"; color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+            }
+            Rectangle { x: 0; y: 21; width: 512; height: 1; color: Theme.bgAlt }
+
+            Column {
+                x: 0; y: 22; width: 512; spacing: 0
+
+                Repeater {
+                    model: nsPanel.list
+
+                    delegate: Item {
+                        width: 512
+                        height: nsPanel.rowH
+                        visible: index < nsPanel.shownRows
+
+                        Rectangle { x: 0; y: (nsPanel.rowH - 3) / 2; width: 10; height: 3; radius: 1; color: page.seriesColor(index) }
+                        Text {
+                            x: 16; y: 0; width: 200; height: nsPanel.rowH
+                            verticalAlignment: Text.AlignVCenter
+                            text: modelData.name || ""
+                            color: Theme.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText
+                            elide: Text.ElideRight
+                        }
+                        Text { x: 220; y: 0; width: 70; height: nsPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.fmtMemShort(modelData.min);  color: Theme.fgMuted;  font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                        Text { x: 294; y: 0; width: 70; height: nsPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.fmtMemShort(modelData.max);  color: Theme.fgMuted;  font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                        Text { x: 368; y: 0; width: 70; height: nsPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.fmtMemShort(modelData.mean); color: Theme.fgMuted;  font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                        Text { x: 442; y: 0; width: 70; height: nsPanel.rowH; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter; text: page.fmtMemShort(modelData.last); color: Theme.fgBright; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText }
+                    }
+                }
+            }
+
+            Text {
+                x: 16; y: 30; width: 300; height: 24
+                verticalAlignment: Text.AlignVCenter
+                visible: !nsPanel.hasData
+                text: "no data"
+                color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText
+            }
+            Text {
+                x: 16; y: 22 + (nsPanel.maxRows - 1) * nsPanel.rowH
+                width: 300; height: nsPanel.rowH
+                verticalAlignment: Text.AlignVCenter
+                visible: nsPanel.list.length > nsPanel.maxRows
+                text: "+ " + (nsPanel.list.length - nsPanel.shownRows) + " more namespaces"
+                color: Theme.dimmer; font.family: Theme.fontFamily; font.pixelSize: Theme.tableText
+            }
+        }
     }
 
-    ListView {
-        id: feed
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: feedTitle.bottom
-        anchors.bottom: parent.bottom
-        anchors.margins: 24
-        anchors.topMargin: 6
-        clip: true
-        spacing: 2
-        model: bridge.events || []
-        boundsBehavior: Flickable.StopAtBounds
+    // ==== recent events 126..684 (h 558) =================================
+    //
+    // Panel height budget (558):
+    //   title bar     0 ..  28
+    //   1px rule     28 ..  29
+    //   list         33 .. 554  (521, clipped, scrolls: 58px rows -> ~9 fit)
+    //   slack       554 .. 558  (4)
+    // Rows are two lines (reason + namespace/object) so nothing is elided to
+    // the point of being unidentifiable. "warn" is spelled out, never a hue.
+    Panel {
+        id: eventsPanel
+        x: page.colRightX
+        y: 126
+        width: page.colRightW
+        height: 558
+        title: "Recent events"
+        note: page.events.length + (page.events.length > 9 ? " · scroll" : "")
 
-        delegate: Row {
-            spacing: 16
-            width: feed.width
-            height: 36
+        ListView {
+            id: eventList
+            x: 8
+            y: page.contentTop
+            width: eventsPanel.width - 16
+            height: 521
+            clip: true
+            spacing: 0
+            model: page.events
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded; width: 8 }
 
-            Text {
-                text: modelData.reason
-                color: modelData.warning ? Theme.warn : Theme.fg
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.small
-                width: 260
-                elide: Text.ElideRight
+            delegate: Item {
+                width: eventList.width - 12
+                height: 58
+
+                Rectangle { x: 0; y: 57; width: parent.width; height: 1; color: Theme.bgAlt }
+
+                Text {
+                    x: 0; y: 2; width: parent.width - 66; height: 24
+                    verticalAlignment: Text.AlignVCenter
+                    text: modelData.reason
+                    color: modelData.warning ? Theme.warn : Theme.fgBright
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.tableText
+                    elide: Text.ElideRight
+                }
+                Text {
+                    x: parent.width - 60; y: 2; width: 60; height: 24
+                    horizontalAlignment: Text.AlignRight
+                    verticalAlignment: Text.AlignVCenter
+                    visible: modelData.warning
+                    text: "warn"
+                    color: Theme.warn
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.tableText
+                }
+                Text {
+                    x: 0; y: 28; width: parent.width; height: 24
+                    verticalAlignment: Text.AlignVCenter
+                    text: modelData.namespace + "/" + modelData.obj
+                    color: Theme.dim
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.tableText
+                    elide: Text.ElideMiddle
+                }
             }
-            Text {
-                text: modelData.namespace + "/" + modelData.obj
-                color: modelData.warning ? Theme.warn : Theme.fg
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.small
-                elide: Text.ElideRight
-                width: feed.width - 280
-            }
+        }
+
+        Text {
+            x: 10; y: 60; width: eventsPanel.width - 20; height: 26
+            visible: page.events.length === 0
+            text: "no recent events"
+            color: Theme.dimmer
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.tableText
         }
     }
 }
