@@ -50,12 +50,28 @@ Rectangle {
         if (b >= 1e3) return (b / 1e3).toFixed(1) + " KB/s"
         return Math.round(b) + " B/s"
     }
-    function fmtRateShort(v) {
+    // Axis ticks only. Deliberately coarser than the legend: whole numbers,
+    // one decimal only below 10, no unit words. "182M" beats "181.6 MB/s" on
+    // an axis — the legend below carries the precision and the units. Worst
+    // case is 5 glyphs ("1000G"), and the gutter is measured off the widest
+    // tick anyway, so the format can change without re-tuning a constant.
+    function fmtAxis(v) {
         var b = v || 0
-        if (b >= 1e6) return (b / 1e6).toFixed(1) + "M"
-        if (b >= 1e3) return (b / 1e3).toFixed(1) + "K"
-        return Math.round(b) + ""
+        if (b >= 1e9) return page.axisNum(b / 1e9) + "G"
+        if (b >= 1e6) return page.axisNum(b / 1e6) + "M"
+        if (b >= 1e3) return page.axisNum(b / 1e3) + "K"
+        return String(Math.round(b))
     }
+    function axisNum(n) { return n < 10 ? n.toFixed(1) : String(Math.round(n)) }
+
+    // Widest of a set of tick strings. Mono glyphs are fixed-advance, so the
+    // longest string is the widest one; TextMetrics then turns it into pixels.
+    function widest(list) {
+        var w = ""
+        for (var i = 0; i < list.length; i++) if (list[i].length > w.length) w = list[i]
+        return w
+    }
+
     function fmtMemShort(v) {
         var b = v || 0
         if (b >= 1e9) return (b / 1e9).toFixed(1) + "G"
@@ -161,8 +177,13 @@ Rectangle {
     //   rx row      211 .. 237  (26)
     //   tx row      239 .. 265  (26)
     //   slack       265 .. 278  (13)
-    // Column x budget (panel-local): gutter 8 (64, right-aligned) |
-    //   plot 76 (862) -> 938. Legend: swatch 8 | name 24 (110) |
+    // Column x budget (panel-local): the y-axis gutter is MEASURED off its
+    // own widest tick label (TextMetrics on `widestTick`), not a constant, and
+    // the plot takes whatever is left up to x=938. A fixed 64px gutter sized
+    // for Cluster's 2-3 character percentages clipped Pulse's 6-character byte
+    // labels ("181.6M" rendered as ".81.6M") — the labels are right-aligned,
+    // so the overflow went off the LEFT edge and the gutter's clip cut it.
+    // Legend (fixed, below the plot): swatch 8 | name 24 (110) |
     //   min 140 (150,r) | max 294 (150,r) | mean 448 (150,r) | last 602 (150,r)
     Panel {
         id: netPanel
@@ -182,23 +203,38 @@ Rectangle {
         readonly property bool hasData: list.length > 0
         readonly property real maxV: page.axisMax(list)
 
+        readonly property string tickTop: page.fmtAxis(maxV)
+        readonly property string tickMid: page.fmtAxis(maxV / 2)
+        readonly property string widestTick: page.widest([tickTop, tickMid, "0"])
+        // Measured, + 6px of breathing room before the plot's left edge.
+        readonly property int gutterW: Math.ceil(netTickMetrics.width) + 6
+        readonly property int plotX: 8 + gutterW + 4
+        readonly property int plotW: 938 - plotX
+
+        TextMetrics {
+            id: netTickMetrics
+            font.family: Theme.monoFamily
+            font.pixelSize: Theme.tableText
+            text: netPanel.widestTick
+        }
+
         Item {
-            x: 8; y: page.contentTop; width: 64; height: 150
+            x: 8; y: page.contentTop; width: netPanel.gutterW; height: 150
             clip: true
             Text {
-                x: 0; y: 0; width: 64; height: 26
+                x: 0; y: 0; width: netPanel.gutterW; height: 26
                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
-                text: page.fmtRateShort(netPanel.maxV)
+                text: netPanel.tickTop
                 color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
             }
             Text {
-                x: 0; y: 62; width: 64; height: 26
+                x: 0; y: 62; width: netPanel.gutterW; height: 26
                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
-                text: page.fmtRateShort(netPanel.maxV / 2)
+                text: netPanel.tickMid
                 color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
             }
             Text {
-                x: 0; y: 124; width: 64; height: 26
+                x: 0; y: 124; width: netPanel.gutterW; height: 26
                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
                 text: "0"
                 color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
@@ -207,7 +243,7 @@ Rectangle {
 
         Canvas {
             id: netPlot
-            x: 76; y: page.contentTop; width: 862; height: 150
+            x: netPanel.plotX; y: page.contentTop; width: netPanel.plotW; height: 150
             clip: true
             antialiasing: true
             renderStrategy: Canvas.Cooperative
@@ -279,9 +315,12 @@ Rectangle {
     //   slack       270 .. 276  (6)
     // Body split horizontally so an 8-row legend and the plot both get their
     // full height (the same reason Cluster's hero chart does it this way):
-    //   gutter  x   8 ..  72  (64,r)
-    //   plot    x  76 .. 416  (340, clipped)
+    //   gutter  x   8 ..  8+gutterW   MEASURED off its widest tick label
+    //   plot    x  8+gutterW+4 .. 416 (clipped, absorbs the gutter's slack)
     //   legend  x 426 .. 938  (512) header 0..21, rows 22..174 (8 x 19)
+    // These labels ("8.1G", "4.1G", "0") fit a 64px gutter today, but only by
+    // luck — they are measured too, so the day this cluster grows a namespace
+    // in the terabytes the plot narrows instead of the label being cut.
     // Legend columns (legend-local): swatch 0 | name 16 (200) |
     //   min 220 (70,r) | max 294 (70,r) | mean 368 (70,r) | last 442 (70,r)
     // Namespace names get 200px at 20px sans (~19 chars) so the name that
@@ -302,23 +341,37 @@ Rectangle {
         readonly property int maxRows: 8
         readonly property int shownRows: list.length > maxRows ? maxRows - 1 : maxRows
 
+        readonly property string tickTop: page.fmtAxis(maxV)
+        readonly property string tickMid: page.fmtAxis(maxV / 2)
+        readonly property string widestTick: page.widest([tickTop, tickMid, "0"])
+        readonly property int gutterW: Math.ceil(nsTickMetrics.width) + 6
+        readonly property int plotX: 8 + gutterW + 4
+        readonly property int plotW: 416 - plotX
+
+        TextMetrics {
+            id: nsTickMetrics
+            font.family: Theme.monoFamily
+            font.pixelSize: Theme.tableText
+            text: nsPanel.widestTick
+        }
+
         Item {
-            x: 8; y: page.contentTop; width: 64; height: 237
+            x: 8; y: page.contentTop; width: nsPanel.gutterW; height: 237
             clip: true
             Text {
-                x: 0; y: 0; width: 64; height: 26
+                x: 0; y: 0; width: nsPanel.gutterW; height: 26
                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
-                text: page.fmtMemShort(nsPanel.maxV)
+                text: nsPanel.tickTop
                 color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
             }
             Text {
-                x: 0; y: 105; width: 64; height: 26
+                x: 0; y: 105; width: nsPanel.gutterW; height: 26
                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
-                text: page.fmtMemShort(nsPanel.maxV / 2)
+                text: nsPanel.tickMid
                 color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
             }
             Text {
-                x: 0; y: 211; width: 64; height: 26
+                x: 0; y: 211; width: nsPanel.gutterW; height: 26
                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
                 text: "0"
                 color: Theme.dimmer; font.family: Theme.monoFamily; font.pixelSize: Theme.tableText
@@ -327,7 +380,7 @@ Rectangle {
 
         Canvas {
             id: nsPlot
-            x: 76; y: page.contentTop; width: 340; height: 237
+            x: nsPanel.plotX; y: page.contentTop; width: nsPanel.plotW; height: 237
             clip: true
             antialiasing: true
             renderStrategy: Canvas.Cooperative
