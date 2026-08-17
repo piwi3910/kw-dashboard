@@ -77,10 +77,10 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: stats.bottom
-        anchors.topMargin: 32
+        anchors.topMargin: 20
         anchors.leftMargin: 24
         anchors.rightMargin: 24
-        height: 160
+        height: 180
 
         Canvas {
             id: spark
@@ -95,28 +95,48 @@ Rectangle {
                 var h = hist
                 if (h.length < 2) return
                 var w = width, ht = height
+                // Leave headroom top and bottom so peaks/troughs never touch
+                // the edges of the band — a large, clearly-shaped chart
+                // rather than a thin line lost in empty space.
+                var pad = 12
+
+                function y(v) { return pad + (ht - pad * 2) - (Math.max(0, Math.min(100, v)) / 100) * (ht - pad * 2) }
+
+                var grad = ctx.createLinearGradient(0, 0, 0, ht)
+                grad.addColorStop(0, Qt.rgba(0.223, 0.529, 0.898, 0.30))
+                grad.addColorStop(1, Qt.rgba(0.223, 0.529, 0.898, 0))
+
+                ctx.beginPath()
+                ctx.moveTo(0, y(h[0]))
+                for (var i = 1; i < h.length; i++)
+                    ctx.lineTo((i / (h.length - 1)) * w, y(h[i]))
+                ctx.lineTo(w, ht)
+                ctx.lineTo(0, ht)
+                ctx.closePath()
+                ctx.fillStyle = grad
+                ctx.fill()
+
                 ctx.strokeStyle = Theme.accent
                 ctx.lineWidth = 3
                 ctx.lineJoin = "round"
                 ctx.lineCap = "round"
                 ctx.beginPath()
-                for (var i = 0; i < h.length; i++) {
-                    var x = (i / (h.length - 1)) * w
-                    var y = ht - (Math.max(0, Math.min(100, h[i])) / 100) * ht
-                    if (i === 0) ctx.moveTo(x, y)
-                    else ctx.lineTo(x, y)
+                for (var j = 0; j < h.length; j++) {
+                    var x = (j / (h.length - 1)) * w
+                    if (j === 0) ctx.moveTo(x, y(h[j]))
+                    else ctx.lineTo(x, y(h[j]))
                 }
                 ctx.stroke()
             }
         }
 
         // A history array too short to plot (<2 points) used to leave the
-        // Canvas blank, which reads as a flat/dead line rather than "no
-        // data" — call it out explicitly instead.
+        // Canvas blank, which reads as a flat/dead line rather than "not
+        // enough data yet" — call it out explicitly instead.
         Text {
             anchors.centerIn: parent
             visible: spark.hist.length < 2
-            text: "no data yet"
+            text: "collecting…"
             color: Theme.dim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.small
@@ -132,7 +152,7 @@ Rectangle {
         font.pixelSize: Theme.small
         anchors.left: parent.left
         anchors.top: sparkArea.bottom
-        anchors.topMargin: 24
+        anchors.topMargin: 16
         anchors.leftMargin: 24
     }
 
@@ -143,16 +163,16 @@ Rectangle {
         anchors.top: feedTitle.bottom
         anchors.bottom: parent.bottom
         anchors.margins: 24
-        anchors.topMargin: 8
+        anchors.topMargin: 6
         clip: true
-        spacing: 4
+        spacing: 2
         model: bridge.events || []
         boundsBehavior: Flickable.StopAtBounds
 
         delegate: Row {
             spacing: 16
             width: feed.width
-            height: 34
+            height: 36
 
             Text {
                 text: modelData.reason

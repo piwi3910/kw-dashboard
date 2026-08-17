@@ -110,7 +110,7 @@ Rectangle {
 
     Text {
         id: podsHeader
-        text: root.nodePods.length + " pods"
+        text: root.nodePods.length + (root.nodePods.length === 1 ? " pod" : " pods")
         color: Theme.dim
         font.family: Theme.fontFamily
         font.pixelSize: Theme.small

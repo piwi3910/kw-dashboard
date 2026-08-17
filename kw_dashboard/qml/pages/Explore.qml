@@ -72,7 +72,7 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
 
                 Text {
-                    text: modelData.pods + " pods"
+                    text: modelData.pods + (modelData.pods === 1 ? " pod" : " pods")
                     color: Theme.dim
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.small

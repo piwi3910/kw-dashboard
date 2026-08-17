@@ -113,6 +113,18 @@ Rectangle {
             ctx.lineCap = "round"
             ctx.stroke()
         }
+
+        // Fewer than 2 points can't plot a line — an empty canvas reads as
+        // "flat, unchanging real data" rather than "not enough data yet",
+        // so say so explicitly instead of leaving it blank.
+        Text {
+            anchors.centerIn: parent
+            visible: !spark.history || spark.history.length < 2
+            text: "collecting…"
+            color: Theme.dim
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.small
+        }
     }
 
     component MiniBar: Item {
@@ -165,7 +177,8 @@ Rectangle {
                 color: Theme.fgBright
             }
             Text {
-                text: "k3s · " + bridge.nodes.length + " nodes · " + bridge.podsRunning + " pods"
+                text: "k3s · " + bridge.nodes.length + (bridge.nodes.length === 1 ? " node · " : " nodes · ")
+                    + bridge.podsRunning + (bridge.podsRunning === 1 ? " pod" : " pods")
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.small
                 color: Theme.fg
@@ -271,7 +284,7 @@ Rectangle {
                         model: [
                             { label: "pending", value: bridge.pendingPods, warn: false },
                             { label: "unhealthy", value: bridge.unhealthyPods, warn: bridge.unhealthyPods > 0 },
-                            { label: "restarts 1h", value: bridge.totalRestarts, warn: false }
+                            { label: "restarts", value: bridge.totalRestarts, warn: false }
                         ]
                         delegate: Item {
                             Layout.fillWidth: true
@@ -441,12 +454,12 @@ Rectangle {
                     Layout.rightMargin: 20
                     spacing: 8
 
-                    Text { Layout.preferredWidth: 156; text: "NODE"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 120; text: "CPU"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 120; text: "MEM"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 64; horizontalAlignment: Text.AlignRight; text: "°C"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 56; horizontalAlignment: Text.AlignRight; text: "PODS"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
-                    Text { Layout.preferredWidth: 76; horizontalAlignment: Text.AlignRight; text: "STATE"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
+                    Text { Layout.preferredWidth: 132; text: "NODE"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
+                    Text { Layout.preferredWidth: 112; text: "CPU"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
+                    Text { Layout.preferredWidth: 112; text: "MEM"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
+                    Text { Layout.preferredWidth: 50; horizontalAlignment: Text.AlignRight; text: "°C"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
+                    Text { Layout.preferredWidth: 88; horizontalAlignment: Text.AlignRight; text: "PODS"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
+                    Text { Layout.preferredWidth: 96; horizontalAlignment: Text.AlignRight; text: "STATE"; font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: Theme.fg }
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: "#222220" }
 
@@ -489,7 +502,7 @@ Rectangle {
                             spacing: 8
 
                             Text {
-                                Layout.preferredWidth: 156
+                                Layout.preferredWidth: 132
                                 text: row.node.name
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.small
@@ -498,14 +511,14 @@ Rectangle {
                             }
 
                             RowLayout {
-                                Layout.preferredWidth: 120
+                                Layout.preferredWidth: 112
                                 spacing: 10
                                 visible: !row.isDown
                                 MiniBar { pct: row.node.cpuPct; fillColor: Theme.stateColor(row.node.cpuPct) }
                                 Text { text: Math.round(row.node.cpuPct); font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: page.numColor(row.node.cpuPct) }
                             }
                             Text {
-                                Layout.preferredWidth: 120
+                                Layout.preferredWidth: 112
                                 visible: row.isDown
                                 text: "—"
                                 font.family: Theme.fontFamily
@@ -514,14 +527,14 @@ Rectangle {
                             }
 
                             RowLayout {
-                                Layout.preferredWidth: 120
+                                Layout.preferredWidth: 112
                                 spacing: 10
                                 visible: !row.isDown
                                 MiniBar { pct: row.node.memPct; fillColor: Theme.stateColor(row.node.memPct) }
                                 Text { text: Math.round(row.node.memPct); font.family: Theme.fontFamily; font.pixelSize: Theme.small; color: page.numColor(row.node.memPct) }
                             }
                             Text {
-                                Layout.preferredWidth: 120
+                                Layout.preferredWidth: 112
                                 visible: row.isDown
                                 text: "—"
                                 font.family: Theme.fontFamily
@@ -530,7 +543,7 @@ Rectangle {
                             }
 
                             Text {
-                                Layout.preferredWidth: 64
+                                Layout.preferredWidth: 50
                                 horizontalAlignment: Text.AlignRight
                                 text: (row.isDown || row.node.tempC < 0) ? "—" : Math.round(row.node.tempC)
                                 font.family: Theme.fontFamily
@@ -538,7 +551,7 @@ Rectangle {
                                 color: Theme.fg
                             }
                             Text {
-                                Layout.preferredWidth: 56
+                                Layout.preferredWidth: 88
                                 horizontalAlignment: Text.AlignRight
                                 text: row.node.pods
                                 font.family: Theme.fontFamily
@@ -546,7 +559,7 @@ Rectangle {
                                 color: row.isDown ? Theme.fg : Theme.fgBright
                             }
                             Text {
-                                Layout.preferredWidth: 76
+                                Layout.preferredWidth: 96
                                 horizontalAlignment: Text.AlignRight
                                 text: row.isDown ? "DOWN" : (row.node.cordoned ? "CORD" : "ready")
                                 font.family: Theme.fontFamily
