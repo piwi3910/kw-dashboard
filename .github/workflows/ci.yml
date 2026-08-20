@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Gate
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - name: Set up Python
+        uses: actions/setup-python@39310523c7807e5a0288ae1ce5ed97230722afb7 # v5.0.0
+        with:
+          python-version: "3.12"
+      - name: Install pytest
+        run: pip install pytest pytest-cov
+      - name: Install procoder
+        run: |
+          curl -sL https://github.com/azrtydxb/procoder/releases/latest/download/procoder-linux-amd64.tar.gz | tar xz -C /tmp
+          mv /tmp/procoder /usr/local/bin/procoder
+      - name: Run procoder check (gate)
+        run: procoder check
+      - name: Run tests
+        run: python -m pytest tests/ -v
+      - name: Run procoder lint
+        run: procoder lint
+
+  docs:
+    name: Docs
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - name: Set up Python
+        uses: actions/setup-python@39310523c7807e5a0288ae1ce5ed97230722afb7 # v5.0.0
+        with:
+          python-version: "3.12"
+      - name: Install procoder
+        run: |
+          curl -sL https://github.com/azrtydxb/procoder/releases/latest/download/procoder-linux-amd64.tar.gz | tar xz -C /tmp
+          mv /tmp/procoder /usr/local/bin/procoder
+      - name: Run docs check
+        run: procoder docs
+
+  security:
+    name: Security
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - name: Set up Python
+        uses: actions/setup-python@39310523c7807e5a0288ae1ce5ed97230722afb7 # v5.0.0
+        with:
+          python-version: "3.12"
+      - name: Install procoder
+        run: |
+          curl -sL https://github.com/azrtydxb/procoder/releases/latest/download/procoder-linux-amd64.tar.gz | tar xz -C /tmp
+          mv /tmp/procoder /usr/local/bin/procoder
+      - name: Run security check
+        run: procoder security
