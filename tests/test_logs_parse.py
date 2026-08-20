@@ -3,7 +3,8 @@ from kw_dashboard.logfmt import split_log_line
 
 def test_full_line_ts_info_message():
     ts, level, msg = split_log_line(
-        "2026-08-16T15:02:11.884Z INFO worker starting, build 3f91c2a")
+        "2026-08-16T15:02:11.884Z INFO worker starting, build 3f91c2a"
+    )
     assert ts == "2026-08-16T15:02:11.884Z"
     assert level == "INFO"
     assert msg == "worker starting, build 3f91c2a"
@@ -11,14 +12,16 @@ def test_full_line_ts_info_message():
 
 def test_warn_level():
     ts, level, msg = split_log_line(
-        "2026-08-16T15:02:19.882Z WARN job 8813 slow: 4.66s")
+        "2026-08-16T15:02:19.882Z WARN job 8813 slow: 4.66s"
+    )
     assert level == "WARN"
     assert msg == "job 8813 slow: 4.66s"
 
 
 def test_error_level():
     ts, level, msg = split_log_line(
-        "2026-08-16T15:02:33.910Z ERROR job 8815 failed: deadline exceeded")
+        "2026-08-16T15:02:33.910Z ERROR job 8815 failed: deadline exceeded"
+    )
     assert level == "ERROR"
     assert msg == "job 8815 failed: deadline exceeded"
 

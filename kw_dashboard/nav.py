@@ -1,5 +1,6 @@
 """View stack and rotation state. Pure logic, no pygame — so it is testable
 without a display."""
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 
@@ -13,8 +14,9 @@ class View:
 
 
 class Nav:
-    def __init__(self, rotate_seconds: float, pause_seconds: float,
-                 idle_reset_seconds: float):
+    def __init__(
+        self, rotate_seconds: float, pause_seconds: float, idle_reset_seconds: float
+    ):
         self.rotate_seconds = rotate_seconds
         self.pause_seconds = pause_seconds
         self.idle_reset_seconds = idle_reset_seconds
@@ -35,7 +37,9 @@ class Nav:
 
     @property
     def rotating(self) -> bool:
-        return self.depth == 0 and not self._paused_at(self._now) and not self._preempted
+        return (
+            self.depth == 0 and not self._paused_at(self._now) and not self._preempted
+        )
 
     _now = 0.0
 
@@ -76,8 +80,9 @@ class Nav:
         # Idle reset from a deep view or a pre-empted page back to page 1.
         # Only short-circuits when there is actually something to reset —
         # otherwise an untouched panel would never rotate at all.
-        if ((now - self._last_touch) > self.idle_reset_seconds
-                and (self._stack or self._preempted)):
+        if (now - self._last_touch) > self.idle_reset_seconds and (
+            self._stack or self._preempted
+        ):
             self._stack.clear()
             self.page_index = 0
             self._preempted = False

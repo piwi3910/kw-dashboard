@@ -1,5 +1,6 @@
 """Bounded log buffer with follow/pause. A long-running tail on an always-on
 panel must not grow without limit."""
+
 from __future__ import annotations
 from collections import deque
 
@@ -8,7 +9,7 @@ def wrap_line(line: str, cols: int) -> list[str]:
     """Hard-wrap; the log view wraps rather than scrolling horizontally."""
     if not line:
         return [""]
-    return [line[i:i + cols] for i in range(0, len(line), cols)]
+    return [line[i : i + cols] for i in range(0, len(line), cols)]
 
 
 class LogStream:
@@ -47,6 +48,6 @@ class LogStream:
             return []
         end = len(buf) if self.follow else min(self._end, len(buf))
         start = max(0, end - rows)
-        if end - start < rows:               # keep the window full when scrolled to the top
+        if end - start < rows:  # keep the window full when scrolled to the top
             end = min(len(buf), start + rows)
         return buf[start:end]

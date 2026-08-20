@@ -1,5 +1,6 @@
 """Background polling thread. Never blocks the renderer; each source fails
 independently so one dead endpoint dims only its own panels."""
+
 from __future__ import annotations
 import threading, time
 from collections import Counter, deque
@@ -14,7 +15,9 @@ RANGE_STEP_SECONDS = 60
 RANGE_MAX_POINTS = 120
 
 
-def is_stale(snap: Snapshot, source: str, limit: float, now: float | None = None) -> bool:
+def is_stale(
+    snap: Snapshot, source: str, limit: float, now: float | None = None
+) -> bool:
     ts = snap.updated.get(source)
     if ts is None:
         return True
@@ -57,10 +60,14 @@ class Collector:
             self._cpu_hist.append(cpu)
             self._mem_hist.append(mem)
             self._update(
-                cluster_cpu=cpu, cluster_mem=mem,
+                cluster_cpu=cpu,
+                cluster_mem=mem,
                 pods_running=int(self.prom.scalar("pods_running")),
-                net_rx=self.prom.scalar("net_rx"), net_tx=self.prom.scalar("net_tx"),
-                cpu_history=tuple(self._cpu_hist), mem_history=tuple(self._mem_hist))
+                net_rx=self.prom.scalar("net_rx"),
+                net_tx=self.prom.scalar("net_tx"),
+                cpu_history=tuple(self._cpu_hist),
+                mem_history=tuple(self._mem_hist),
+            )
             self._mark("prom")
         except Exception as e:
             self._mark("prom", str(e))
@@ -78,21 +85,33 @@ class Collector:
         pods = self.kube.list_pods()
         counts = Counter(p.node for p in pods)
         stats = merge_node_stats(
-            nodes, self.prom.query_named("node_cpu"),
+            nodes,
+            self.prom.query_named("node_cpu"),
             self.prom.query_named("node_mem"),
-            self.prom.query_named("node_temp"), counts,
-            uptime=self.prom.query_named("node_uptime_days"))
+            self.prom.query_named("node_temp"),
+            counts,
+            uptime=self.prom.query_named("node_uptime_days"),
+        )
 
-        ns_cpu = {s.labels.get("namespace"): s.value for s in self.prom.query_named("ns_cpu")}
-        ns_mem = {s.labels.get("namespace"): s.value for s in self.prom.query_named("ns_mem")}
+        ns_cpu = {
+            s.labels.get("namespace"): s.value for s in self.prom.query_named("ns_cpu")
+        }
+        ns_mem = {
+            s.labels.get("namespace"): s.value for s in self.prom.query_named("ns_mem")
+        }
         by_ns: dict[str, list] = {}
         for p in pods:
             by_ns.setdefault(p.namespace, []).append(p)
         namespaces = [
-            NsStat(name=ns, pods=len(ps),
-                   unhealthy=sum(1 for p in ps if not p.healthy),
-                   cpu_cores=ns_cpu.get(ns, 0.0), mem_bytes=ns_mem.get(ns, 0.0))
-            for ns, ps in by_ns.items()]
+            NsStat(
+                name=ns,
+                pods=len(ps),
+                unhealthy=sum(1 for p in ps if not p.healthy),
+                cpu_cores=ns_cpu.get(ns, 0.0),
+                mem_bytes=ns_mem.get(ns, 0.0),
+            )
+            for ns, ps in by_ns.items()
+        ]
         self._update(nodes=stats, namespaces=namespaces, pods=pods)
 
     def _poll_slow(self):
@@ -127,8 +146,16 @@ class Collector:
                 name = s.labels.get("namespace") or s.labels.get("instance") or ""
             pts = downsample(s.points, RANGE_MAX_POINTS)
             st = stats(pts)
-            out.append({"name": name, "points": pts,
-                        "min": st.min, "max": st.max, "mean": st.mean, "last": st.last})
+            out.append(
+                {
+                    "name": name,
+                    "points": pts,
+                    "min": st.min,
+                    "max": st.max,
+                    "mean": st.mean,
+                    "last": st.last,
+                }
+            )
         return tuple(out)
 
     def _poll_series(self):
@@ -137,18 +164,29 @@ class Collector:
         nodes = self.kube.list_nodes()
         ip_map = build_ip_map(nodes)
 
-        node_cpu = self.prom.query_range(self._range_query("node_cpu"), start, end, RANGE_STEP_SECONDS)
-        node_mem = self.prom.query_range(self._range_query("node_mem"), start, end, RANGE_STEP_SECONDS)
-        ns_mem = self.prom.query_range(self._range_query("ns_mem"), start, end, RANGE_STEP_SECONDS)
-        net_rx = self.prom.query_range(self._range_query("net_rx"), start, end, RANGE_STEP_SECONDS)
-        net_tx = self.prom.query_range(self._range_query("net_tx"), start, end, RANGE_STEP_SECONDS)
+        node_cpu = self.prom.query_range(
+            self._range_query("node_cpu"), start, end, RANGE_STEP_SECONDS
+        )
+        node_mem = self.prom.query_range(
+            self._range_query("node_mem"), start, end, RANGE_STEP_SECONDS
+        )
+        ns_mem = self.prom.query_range(
+            self._range_query("ns_mem"), start, end, RANGE_STEP_SECONDS
+        )
+        net_rx = self.prom.query_range(
+            self._range_query("net_rx"), start, end, RANGE_STEP_SECONDS
+        )
+        net_tx = self.prom.query_range(
+            self._range_query("net_tx"), start, end, RANGE_STEP_SECONDS
+        )
 
         self._update(
             node_cpu_series=self._series_dicts(node_cpu, name_map=ip_map),
             node_mem_series=self._series_dicts(node_mem, name_map=ip_map),
             ns_mem_series=self._series_dicts(ns_mem),
             net_rx_series=self._series_dicts(net_rx),
-            net_tx_series=self._series_dicts(net_tx))
+            net_tx_series=self._series_dicts(net_tx),
+        )
 
     @staticmethod
     def _range_query(name: str) -> str:

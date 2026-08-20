@@ -1,4 +1,5 @@
 """Log line parsing. Pure logic, no rendering dependency."""
+
 from __future__ import annotations
 
 _LEVELS = {"INFO", "WARN", "WARNING", "ERROR", "ERR", "DEBUG", "TRACE", "FATAL"}

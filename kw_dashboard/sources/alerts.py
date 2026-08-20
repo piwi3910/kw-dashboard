@@ -1,4 +1,5 @@
 """Alertmanager client. Severity ranking drives screen pre-emption (spec 7)."""
+
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -26,18 +27,26 @@ def parse_alerts(payload: list) -> list[Alert]:
             parsed = datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else None
         except (ValueError, AttributeError):
             parsed = None
-        out.append(Alert(
-            name=labels.get("alertname", "unknown"),
-            severity=labels.get("severity", "info"),
-            summary=a.get("annotations", {}).get("summary", ""),
-            starts_at=parsed))
+        out.append(
+            Alert(
+                name=labels.get("alertname", "unknown"),
+                severity=labels.get("severity", "info"),
+                summary=a.get("annotations", {}).get("summary", ""),
+                starts_at=parsed,
+            )
+        )
     return out
 
 
 def rank_alerts(alerts: list[Alert]) -> list[Alert]:
     epoch = datetime.fromtimestamp(0, tz=timezone.utc)
-    return sorted(alerts, key=lambda a: (SEVERITY_ORDER.get(a.severity, 99),
-                                         -(a.starts_at or epoch).timestamp()))
+    return sorted(
+        alerts,
+        key=lambda a: (
+            SEVERITY_ORDER.get(a.severity, 99),
+            -(a.starts_at or epoch).timestamp(),
+        ),
+    )
 
 
 def has_critical(alerts: list[Alert]) -> bool:

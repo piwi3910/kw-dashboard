@@ -1,4 +1,5 @@
 """Immutable snapshot handed from collector to renderer."""
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from .sources.prometheus import Sample
@@ -59,11 +60,16 @@ class Snapshot:
     errors: dict = field(default_factory=dict)
 
 
-def merge_node_stats(nodes: list[NodeInfo], cpu: list[Sample], mem: list[Sample],
-                     temp: list[Sample], pod_counts: dict[str, int],
-                     uptime: list[Sample] | None = None) -> list[NodeStat]:
+def merge_node_stats(
+    nodes: list[NodeInfo],
+    cpu: list[Sample],
+    mem: list[Sample],
+    temp: list[Sample],
+    pod_counts: dict[str, int],
+    uptime: list[Sample] | None = None,
+) -> list[NodeStat]:
     """Join node-exporter series (labelled by IP:9100) to k8s node names."""
-    ip_map = build_ip_map(nodes)                     # {"IP:9100": node_name}
+    ip_map = build_ip_map(nodes)  # {"IP:9100": node_name}
 
     def by_name(samples):
         out = {}
@@ -76,10 +82,14 @@ def merge_node_stats(nodes: list[NodeInfo], cpu: list[Sample], mem: list[Sample]
     c, m, t, u = by_name(cpu), by_name(mem), by_name(temp), by_name(uptime or [])
     return [
         NodeStat(
-            name=n.name, ready=n.ready, cordoned=n.cordoned,
-            cpu_pct=c.get(n.name, 0.0), mem_pct=m.get(n.name, 0.0),
-            temp_c=t.get(n.name),      # None when absent: absent != 0 degrees
+            name=n.name,
+            ready=n.ready,
+            cordoned=n.cordoned,
+            cpu_pct=c.get(n.name, 0.0),
+            mem_pct=m.get(n.name, 0.0),
+            temp_c=t.get(n.name),  # None when absent: absent != 0 degrees
             pods=pod_counts.get(n.name, 0),
-            uptime_days=u.get(n.name))  # None when absent: not "freshly booted"
+            uptime_days=u.get(n.name),
+        )  # None when absent: not "freshly booted"
         for n in nodes
     ]

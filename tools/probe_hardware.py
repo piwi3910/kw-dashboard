@@ -10,6 +10,7 @@ invalidate layout work if guessed wrong:
 
 Touch probing needs a human to touch the panel, so it is opt-in via --touch.
 """
+
 import glob
 import os
 import select
@@ -29,7 +30,10 @@ def check_vt():
     try:
         used = subprocess.run(
             ["fuser", "-v"] + sorted(glob.glob("/dev/tty[1-9]")),
-            capture_output=True, text=True, timeout=10)
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
         print(f"tty users:\n{used.stderr.strip() or '(none reported)'}")
     except (OSError, subprocess.SubprocessError) as e:
         print(f"fuser unavailable: {e}")
@@ -78,8 +82,10 @@ def check_touch(dev="/dev/input/event5", seconds=15):
     if xs and ys:
         print(f"ABS_X range: {min(xs)}..{max(xs)}")
         print(f"ABS_Y range: {min(ys)}..{max(ys)}")
-        print("Compare against 1280x720: if X range maps to the short edge, "
-              "set swap_xy = true in config.")
+        print(
+            "Compare against 1280x720: if X range maps to the short edge, "
+            "set swap_xy = true in config."
+        )
     else:
         print("NO TOUCH EVENTS SEEN")
 
@@ -90,4 +96,4 @@ if __name__ == "__main__":
     if "--touch" in sys.argv:
         check_touch()
     else:
-        print("== TOUCH ==\nskipped (pass --touch, requires a human at the panel)")
+        print("== TOUCH ==\n  skipped (pass --touch, requires a human at the panel)")
