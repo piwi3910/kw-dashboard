@@ -24,9 +24,7 @@ jobs:
       - name: Install pytest
         run: pip install pytest pytest-cov
       - name: Install procoder
-        run: |
-          curl -sL https://github.com/azrtydxb/procoder/releases/latest/download/procoder-linux-amd64.tar.gz | tar xz -C /tmp
-          mv /tmp/procoder /usr/local/bin/procoder
+        run: curl -sL https://github.com/azrtydxb/procoder/releases/latest/download/procoder-linux-amd64 -o /tmp/procoder && chmod +x /tmp/procoder && mv /tmp/procoder /usr/local/bin/procoder
       - name: Run procoder check (gate)
         run: procoder check
       - name: Run tests
@@ -45,9 +43,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install procoder
-        run: |
-          curl -sL https://github.com/azrtydxb/procoder/releases/latest/download/procoder-linux-amd64.tar.gz | tar xz -C /tmp
-          mv /tmp/procoder /usr/local/bin/procoder
+        run: curl -sL https://github.com/azrtydxb/procoder/releases/latest/download/procoder-linux-amd64 -o /tmp/procoder && chmod +x /tmp/procoder && mv /tmp/procoder /usr/local/bin/procoder
       - name: Run docs check
         run: procoder docs
 
@@ -62,8 +58,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install procoder
-        run: |
-          curl -sL https://github.com/azrtydxb/procoder/releases/latest/download/procoder-linux-amd64.tar.gz | tar xz -C /tmp
-          mv /tmp/procoder /usr/local/bin/procoder
+        run: curl -sL https://github.com/azrtydxb/procoder/releases/latest/download/procoder-linux-amd64 -o /tmp/procoder && chmod +x /tmp/procoder && mv /tmp/procoder /usr/local/bin/procoder
       - name: Run security check
         run: procoder security
