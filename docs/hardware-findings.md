@@ -48,12 +48,12 @@ unverified, and the calibration knobs exist precisely because it may be wrong.
 
 ## Panel reference
 
-| Property | Value |
-|---|---|
-| Connector | HDMI-A-1, connected |
-| Mode | 1280x720 (preferred; 1920x1080 offered but unused) |
-| Panel | Realtek scaler, EDID model `RTK 9Cun` — ~9 inch |
-| EDID physical size | Reports 597x336 mm. **Garbage** — generic scaler default, implies 27". Ignore it; the 9" figure comes from the model name (*cun* = inch). |
-| Touch | ILITEK, USB 222a:0001, `/dev/input/event5` + `mouse0` |
-| GPU | Mali-G610, `panthor` driver, `/dev/dri/card1` |
-| Other input | `gpio_ir_recv` (IR), `adc-keys-0/1` — present but unused |
+| Property           | Value                                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Connector          | HDMI-A-1, connected                                                                                                                       |
+| Mode               | 1280x720 (preferred; 1920x1080 offered but unused)                                                                                        |
+| Panel              | Realtek scaler, EDID model `RTK 9Cun` — ~9 inch                                                                                           |
+| EDID physical size | Reports 597x336 mm. **Garbage** — generic scaler default, implies 27". Ignore it; the 9" figure comes from the model name (_cun_ = inch). |
+| Touch              | ILITEK, USB 222a:0001, `/dev/input/event5` + `mouse0`                                                                                     |
+| GPU                | Mali-G610, `panthor` driver, `/dev/dri/card1`                                                                                             |
+| Other input        | `gpio_ir_recv` (IR), `adc-keys-0/1` — present but unused                                                                                  |

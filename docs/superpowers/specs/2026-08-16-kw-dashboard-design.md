@@ -25,19 +25,19 @@ always-visible summary.
 
 Verified on the node, 2026-08-16.
 
-| Property | Value |
-|---|---|
-| Host | `km01`, Kubernetes node `master-11`, `192.168.10.101` |
-| SoC | Rockchip RK3588, 8 cores, aarch64 |
-| RAM | 30 GiB |
-| OS | Armbian 26.2.1 (Ubuntu 24.04 noble), kernel 6.12.58-current-rockchip64 |
-| Display | HDMI-A-1 connected, `/dev/fb0`, **1280x720** — confirmed correct for this 9" panel; 1920x1080 is offered but explicitly not used |
-| Panel | Realtek scaler, EDID model `RTK 9Cun` — a ~9 inch panel. EDID's 597x336 mm physical size is generic-scaler garbage and must be ignored. |
-| GPU | Mali-G610, `panthor` driver, `/dev/dri/card1` + `renderD128`. No GL/Vulkan userspace installed; Mesa 25.2.8 available in apt. |
-| Touch | `ILITEK-TOUCH`, USB `222a:0001` behind a Genesys hub, `/dev/input/event5` + `mouse0` |
-| Other input | `gpio_ir_recv` (IR), `adc-keys-0/1` (board buttons) — **not used**, noted only so they are not mistaken for the touch device |
-| Node state | Cordoned (`SchedulingDisabled`) |
-| Service user | `piwi`, already in groups `video`, `render`, `input`, `tty` |
+| Property     | Value                                                                                                                                   |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Host         | `km01`, Kubernetes node `master-11`, `192.168.10.101`                                                                                   |
+| SoC          | Rockchip RK3588, 8 cores, aarch64                                                                                                       |
+| RAM          | 30 GiB                                                                                                                                  |
+| OS           | Armbian 26.2.1 (Ubuntu 24.04 noble), kernel 6.12.58-current-rockchip64                                                                  |
+| Display      | HDMI-A-1 connected, `/dev/fb0`, **1280x720** — confirmed correct for this 9" panel; 1920x1080 is offered but explicitly not used        |
+| Panel        | Realtek scaler, EDID model `RTK 9Cun` — a ~9 inch panel. EDID's 597x336 mm physical size is generic-scaler garbage and must be ignored. |
+| GPU          | Mali-G610, `panthor` driver, `/dev/dri/card1` + `renderD128`. No GL/Vulkan userspace installed; Mesa 25.2.8 available in apt.           |
+| Touch        | `ILITEK-TOUCH`, USB `222a:0001` behind a Genesys hub, `/dev/input/event5` + `mouse0`                                                    |
+| Other input  | `gpio_ir_recv` (IR), `adc-keys-0/1` (board buttons) — **not used**, noted only so they are not mistaken for the touch device            |
+| Node state   | Cordoned (`SchedulingDisabled`)                                                                                                         |
+| Service user | `piwi`, already in groups `video`, `render`, `input`, `tty`                                                                             |
 
 **Effective pixel density:** the panel is roughly 200 mm wide at 1280 px, so
 about **6.4 px/mm**. At a ~1 m viewing distance this sets a hard floor of
@@ -50,9 +50,9 @@ not aesthetics, is what forces low information density per page.
 
 Draws straight to DRM with no display server. Chosen over the two alternatives:
 
-- *TUI on the framebuffer console* — less code and very robust, but cannot
+- _TUI on the framebuffer console_ — less code and very robust, but cannot
   reach the visual quality asked for.
-- *Direct DRM + cairo* — same visual ceiling as pygame, but requires
+- _Direct DRM + cairo_ — same visual ceiling as pygame, but requires
   hand-rolled modesetting, dumb-buffer allocation, page flipping, vblank
   handling and damage tracking before the first dashboard pixel is drawn.
 
@@ -103,12 +103,12 @@ blank screen.
 
 All verified reachable from the node.
 
-| Source | Address | Latency | Used for |
-|---|---|---|---|
-| Prometheus | `10.43.125.146:9090` | 7 ms | node and per-container CPU/RAM/temp, pod counts, rates, sparkline history |
-| Alertmanager | `10.43.225.33:9093` | — | firing alerts |
-| k3s API | `127.0.0.1:6443` | — | namespace/workload/pod listing, conditions, events, **and pod logs** |
-| Loki | `10.43.88.188:3100` | 2 ms | *optional* historical logs from before the current pod instance |
+| Source       | Address              | Latency | Used for                                                                  |
+| ------------ | -------------------- | ------- | ------------------------------------------------------------------------- |
+| Prometheus   | `10.43.125.146:9090` | 7 ms    | node and per-container CPU/RAM/temp, pod counts, rates, sparkline history |
+| Alertmanager | `10.43.225.33:9093`  | —       | firing alerts                                                             |
+| k3s API      | `127.0.0.1:6443`     | —       | namespace/workload/pod listing, conditions, events, **and pod logs**      |
+| Loki         | `10.43.88.188:3100`  | 2 ms    | _optional_ historical logs from before the current pod instance           |
 
 Prometheus is `kube-prometheus-stack` with node-exporter on all 8 nodes and
 kube-state-metrics. 2739 metric names available.

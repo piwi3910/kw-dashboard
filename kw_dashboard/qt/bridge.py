@@ -3,6 +3,7 @@ plain properties/slots. All existing logic (Collector, Nav, model dataclasses)
 is reused unchanged; this file only translates it into pyqtProperty/pyqtSlot
 shape and keeps network I/O off the GUI thread.
 """
+
 from __future__ import annotations
 import threading
 import time
@@ -20,50 +21,77 @@ _STALE_SOURCES = ("prom", "nodes", "alerts", "kube")
 
 def _node_dict(n) -> dict:
     return {
-        "name": n.name, "ready": n.ready, "cordoned": n.cordoned,
-        "cpuPct": n.cpu_pct, "memPct": n.mem_pct,
+        "name": n.name,
+        "ready": n.ready,
+        "cordoned": n.cordoned,
+        "cpuPct": n.cpu_pct,
+        "memPct": n.mem_pct,
         "tempC": n.temp_c if n.temp_c is not None else -1,
-        "pods": n.pods, "worstPct": n.worst_pct,
+        "pods": n.pods,
+        "worstPct": n.worst_pct,
         "uptimeDays": n.uptime_days if n.uptime_days is not None else None,
     }
 
 
 def _series_dict(s: dict) -> dict:
     return {
-        "name": s["name"], "points": [list(p) for p in s["points"]],
-        "min": s["min"], "max": s["max"], "mean": s["mean"], "last": s["last"],
+        "name": s["name"],
+        "points": [list(p) for p in s["points"]],
+        "min": s["min"],
+        "max": s["max"],
+        "mean": s["mean"],
+        "last": s["last"],
     }
 
 
 def _ns_dict(n) -> dict:
-    return {"name": n.name, "pods": n.pods, "unhealthy": n.unhealthy,
-            "cpuCores": n.cpu_cores, "memBytes": n.mem_bytes}
+    return {
+        "name": n.name,
+        "pods": n.pods,
+        "unhealthy": n.unhealthy,
+        "cpuCores": n.cpu_cores,
+        "memBytes": n.mem_bytes,
+    }
 
 
 def _pod_dict(p) -> dict:
     return {
-        "name": p.name, "namespace": p.namespace, "node": p.node,
-        "phase": p.phase, "ready": p.ready, "total": p.total,
-        "restarts": p.restarts, "containers": list(p.containers),
+        "name": p.name,
+        "namespace": p.namespace,
+        "node": p.node,
+        "phase": p.phase,
+        "ready": p.ready,
+        "total": p.total,
+        "restarts": p.restarts,
+        "containers": list(p.containers),
         "healthy": p.healthy,
     }
 
 
 def _alert_dict(a) -> dict:
-    return {"name": a.name, "severity": a.severity, "summary": a.summary,
-            "startsAt": a.starts_at.isoformat() if a.starts_at else None}
+    return {
+        "name": a.name,
+        "severity": a.severity,
+        "summary": a.summary,
+        "startsAt": a.starts_at.isoformat() if a.starts_at else None,
+    }
 
 
 def _event_dict(e) -> dict:
-    return {"reason": e.reason, "message": e.message, "obj": e.obj,
-            "namespace": e.namespace, "warning": e.warning,
-            "ts": e.ts.isoformat()}
+    return {
+        "reason": e.reason,
+        "message": e.message,
+        "obj": e.obj,
+        "namespace": e.namespace,
+        "warning": e.warning,
+        "ts": e.ts.isoformat(),
+    }
 
 
 class Bridge(QObject):
     snapshotChanged = pyqtSignal()
     navChanged = pyqtSignal()
-    podsFetched = pyqtSignal(str, 'QVariant')
+    podsFetched = pyqtSignal(str, "QVariant")
     logsFetched = pyqtSignal(str, str, str)
 
     def __init__(self, cfg, collector, nav, parent=None):
@@ -97,9 +125,12 @@ class Bridge(QObject):
         elif not critical:
             self._preempt_active = False
 
-        nav_state = (self.nav.page_index, self.nav.current.kind,
-                     tuple(sorted(self.nav.current.params.items())),
-                     self.nav.depth)
+        nav_state = (
+            self.nav.page_index,
+            self.nav.current.kind,
+            tuple(sorted(self.nav.current.params.items())),
+            self.nav.depth,
+        )
         if nav_state != self._last_nav_state:
             self._last_nav_state = nav_state
             self.navChanged.emit()
@@ -112,62 +143,93 @@ class Bridge(QObject):
     def _snap(self) -> Snapshot:
         return self._last_snap
 
-    clusterCpu = pyqtProperty(float, lambda self: self._snap().cluster_cpu,
-                               notify=snapshotChanged)
-    clusterMem = pyqtProperty(float, lambda self: self._snap().cluster_mem,
-                               notify=snapshotChanged)
-    podsRunning = pyqtProperty(int, lambda self: self._snap().pods_running,
-                                notify=snapshotChanged)
-    netRx = pyqtProperty(float, lambda self: self._snap().net_rx,
-                          notify=snapshotChanged)
-    netTx = pyqtProperty(float, lambda self: self._snap().net_tx,
-                          notify=snapshotChanged)
-    cpuHistory = pyqtProperty('QVariant',
-                               lambda self: list(self._snap().cpu_history),
-                               notify=snapshotChanged)
-    memHistory = pyqtProperty('QVariant',
-                               lambda self: list(self._snap().mem_history),
-                               notify=snapshotChanged)
-    nodes = pyqtProperty('QVariant',
-                          lambda self: [_node_dict(n) for n in self._snap().nodes],
-                          notify=snapshotChanged)
-    namespaces = pyqtProperty('QVariant',
-                               lambda self: [_ns_dict(n) for n in self._snap().namespaces],
-                               notify=snapshotChanged)
-    pods = pyqtProperty('QVariant',
-                         lambda self: [_pod_dict(p) for p in self._snap().pods],
-                         notify=snapshotChanged)
-    alerts = pyqtProperty('QVariant',
-                           lambda self: [_alert_dict(a) for a in self._snap().alerts],
-                           notify=snapshotChanged)
-    events = pyqtProperty('QVariant',
-                           lambda self: [_event_dict(e) for e in self._snap().events],
-                           notify=snapshotChanged)
-    errors = pyqtProperty('QVariant', lambda self: dict(self._snap().errors),
-                           notify=snapshotChanged)
-    nodeCpuSeries = pyqtProperty('QVariant',
-                                  lambda self: [_series_dict(s) for s in self._snap().node_cpu_series],
-                                  notify=snapshotChanged)
-    nodeMemSeries = pyqtProperty('QVariant',
-                                  lambda self: [_series_dict(s) for s in self._snap().node_mem_series],
-                                  notify=snapshotChanged)
-    nsMemSeries = pyqtProperty('QVariant',
-                                lambda self: [_series_dict(s) for s in self._snap().ns_mem_series],
-                                notify=snapshotChanged)
-    netRxSeries = pyqtProperty('QVariant',
-                                lambda self: [_series_dict(s) for s in self._snap().net_rx_series],
-                                notify=snapshotChanged)
-    netTxSeries = pyqtProperty('QVariant',
-                                lambda self: [_series_dict(s) for s in self._snap().net_tx_series],
-                                notify=snapshotChanged)
-    timeRangeLabel = pyqtProperty(str, lambda self: "Last 1 hour", notify=snapshotChanged)
-    alertsFiring = pyqtProperty(int, lambda self: len(self._snap().alerts),
-                                 notify=snapshotChanged)
+    clusterCpu = pyqtProperty(
+        float, lambda self: self._snap().cluster_cpu, notify=snapshotChanged
+    )
+    clusterMem = pyqtProperty(
+        float, lambda self: self._snap().cluster_mem, notify=snapshotChanged
+    )
+    podsRunning = pyqtProperty(
+        int, lambda self: self._snap().pods_running, notify=snapshotChanged
+    )
+    netRx = pyqtProperty(
+        float, lambda self: self._snap().net_rx, notify=snapshotChanged
+    )
+    netTx = pyqtProperty(
+        float, lambda self: self._snap().net_tx, notify=snapshotChanged
+    )
+    cpuHistory = pyqtProperty(
+        "QVariant", lambda self: list(self._snap().cpu_history), notify=snapshotChanged
+    )
+    memHistory = pyqtProperty(
+        "QVariant", lambda self: list(self._snap().mem_history), notify=snapshotChanged
+    )
+    nodes = pyqtProperty(
+        "QVariant",
+        lambda self: [_node_dict(n) for n in self._snap().nodes],
+        notify=snapshotChanged,
+    )
+    namespaces = pyqtProperty(
+        "QVariant",
+        lambda self: [_ns_dict(n) for n in self._snap().namespaces],
+        notify=snapshotChanged,
+    )
+    pods = pyqtProperty(
+        "QVariant",
+        lambda self: [_pod_dict(p) for p in self._snap().pods],
+        notify=snapshotChanged,
+    )
+    alerts = pyqtProperty(
+        "QVariant",
+        lambda self: [_alert_dict(a) for a in self._snap().alerts],
+        notify=snapshotChanged,
+    )
+    events = pyqtProperty(
+        "QVariant",
+        lambda self: [_event_dict(e) for e in self._snap().events],
+        notify=snapshotChanged,
+    )
+    errors = pyqtProperty(
+        "QVariant", lambda self: dict(self._snap().errors), notify=snapshotChanged
+    )
+    nodeCpuSeries = pyqtProperty(
+        "QVariant",
+        lambda self: [_series_dict(s) for s in self._snap().node_cpu_series],
+        notify=snapshotChanged,
+    )
+    nodeMemSeries = pyqtProperty(
+        "QVariant",
+        lambda self: [_series_dict(s) for s in self._snap().node_mem_series],
+        notify=snapshotChanged,
+    )
+    nsMemSeries = pyqtProperty(
+        "QVariant",
+        lambda self: [_series_dict(s) for s in self._snap().ns_mem_series],
+        notify=snapshotChanged,
+    )
+    netRxSeries = pyqtProperty(
+        "QVariant",
+        lambda self: [_series_dict(s) for s in self._snap().net_rx_series],
+        notify=snapshotChanged,
+    )
+    netTxSeries = pyqtProperty(
+        "QVariant",
+        lambda self: [_series_dict(s) for s in self._snap().net_tx_series],
+        notify=snapshotChanged,
+    )
+    timeRangeLabel = pyqtProperty(
+        str, lambda self: "Last 1 hour", notify=snapshotChanged
+    )
+    alertsFiring = pyqtProperty(
+        int, lambda self: len(self._snap().alerts), notify=snapshotChanged
+    )
 
     def _stale(self) -> bool:
         snap, now = self._snap(), time.time()
-        return any(is_stale(snap, src, self.cfg.stale_after_seconds, now)
-                   for src in _STALE_SOURCES)
+        return any(
+            is_stale(snap, src, self.cfg.stale_after_seconds, now)
+            for src in _STALE_SOURCES
+        )
 
     stale = pyqtProperty(bool, _stale, notify=snapshotChanged)
 
@@ -195,13 +257,11 @@ class Bridge(QObject):
     memPeak = pyqtProperty(float, _mem_peak, notify=snapshotChanged)
 
     # ---- nav properties -------------------------------------------
-    pageIndex = pyqtProperty(int, lambda self: self.nav.page_index,
-                              notify=navChanged)
-    viewKind = pyqtProperty(str, lambda self: self.nav.current.kind,
-                             notify=navChanged)
-    viewParams = pyqtProperty('QVariant',
-                               lambda self: dict(self.nav.current.params),
-                               notify=navChanged)
+    pageIndex = pyqtProperty(int, lambda self: self.nav.page_index, notify=navChanged)
+    viewKind = pyqtProperty(str, lambda self: self.nav.current.kind, notify=navChanged)
+    viewParams = pyqtProperty(
+        "QVariant", lambda self: dict(self.nav.current.params), notify=navChanged
+    )
     depth = pyqtProperty(int, lambda self: self.nav.depth, notify=navChanged)
 
     # ---- slots ----------------------------------------------------
@@ -209,7 +269,7 @@ class Bridge(QObject):
     def touch(self):
         self.nav.touch(time.time())
 
-    @pyqtSlot(str, 'QVariant')
+    @pyqtSlot(str, "QVariant")
     def pushView(self, kind, params):
         p = dict(params) if params else {}
         self.nav.push(View(kind, p), time.time())
@@ -234,8 +294,9 @@ class Bridge(QObject):
     # ---- off-thread network fetches --------------------------------
     @pyqtSlot(str)
     def fetchPods(self, ns):
-        threading.Thread(target=self._fetch_pods_thread, args=(ns,),
-                         daemon=True).start()
+        threading.Thread(
+            target=self._fetch_pods_thread, args=(ns,), daemon=True
+        ).start()
 
     def _fetch_pods_thread(self, ns):
         try:
@@ -248,18 +309,20 @@ class Bridge(QObject):
 
     @pyqtSlot(str, str, str)
     def fetchLogs(self, ns, pod, container):
-        threading.Thread(target=self._fetch_logs_thread,
-                         args=(ns, pod, container), daemon=True).start()
+        threading.Thread(
+            target=self._fetch_logs_thread, args=(ns, pod, container), daemon=True
+        ).start()
 
     def _fetch_logs_thread(self, ns, pod, container):
         try:
             lines = self.collector.kube.pod_log(
-                ns, pod, container or None, tail=self.cfg.log_tail_lines)
+                ns, pod, container or None, tail=self.cfg.log_tail_lines
+            )
             self._log_stream.append_lines(lines)
         except Exception:
             pass
         self.logsFetched.emit(ns, pod, container)
 
-    @pyqtSlot(result='QVariant')
+    @pyqtSlot(result="QVariant")
     def logLines(self):
         return list(self._log_stream.lines)

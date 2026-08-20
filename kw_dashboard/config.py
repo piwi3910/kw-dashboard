@@ -4,6 +4,7 @@ Touch scaling is not configured here: under Qt eglfs, libinput reads the
 digitiser's real axis range from the kernel and scales it itself, so no
 calibration knob is needed (do not re-add one).
 """
+
 from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, replace

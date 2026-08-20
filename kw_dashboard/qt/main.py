@@ -1,6 +1,7 @@
 """Qt/QML entry point. --windowed skips eglfs so layout work never requires
 the physical panel; --config picks the same config file the pygame path used.
 """
+
 from __future__ import annotations
 import argparse
 import os
@@ -37,8 +38,11 @@ def _set_eglfs_env():
 def main():
     ap = argparse.ArgumentParser(prog="kw-dashboard-qt")
     ap.add_argument("--config", default="/etc/kw-dashboard/config.toml")
-    ap.add_argument("--windowed", action="store_true",
-                    help="run in a desktop window instead of KMSDRM/eglfs")
+    ap.add_argument(
+        "--windowed",
+        action="store_true",
+        help="run in a desktop window instead of KMSDRM/eglfs",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -52,7 +56,8 @@ def main():
         cfg,
         PrometheusClient(cfg.prometheus_url, cfg.http_timeout_seconds),
         KubeClient(cfg.kube_url, token, ca, cfg.http_timeout_seconds),
-        AlertsClient(cfg.alertmanager_url, cfg.http_timeout_seconds))
+        AlertsClient(cfg.alertmanager_url, cfg.http_timeout_seconds),
+    )
     nav = Nav(cfg.rotate_seconds, cfg.touch_pause_seconds, cfg.idle_reset_seconds)
 
     collector.start()

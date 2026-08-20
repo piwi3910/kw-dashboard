@@ -74,10 +74,12 @@ tools/
 Spec section 12 lists three risks that can invalidate all layout work. Resolve them before writing dashboard code. This task is a spike: its deliverable is a probe script plus recorded findings.
 
 **Files:**
+
 - Create: `tools/probe_hardware.py`
 - Create: `docs/hardware-findings.md`
 
 **Interfaces:**
+
 - Consumes: nothing
 - Produces: verified answers for (a) whether `piwi` can acquire DRM master unprivileged, (b) ILITEK touch axis orientation and range, (c) which VT is free. These feed `config.py` defaults in Task 2.
 
@@ -93,7 +95,8 @@ def check_vt():
     print(f"console active on: {active}")
     used = subprocess.run(["fuser", "-v"] + glob.glob("/dev/tty[1-9]"),
                           capture_output=True, text=True)
-    print(f"tty users:\n{used.stderr}")
+    print(f"tty users:
+{used.stderr}")
 
 def check_drm():
     os.environ["SDL_VIDEODRIVER"] = "kmsdrm"
@@ -166,10 +169,12 @@ git commit -m "spike: probe DRM master, touch calibration, VT availability"
 ## Task 2: Config module
 
 **Files:**
+
 - Create: `kw_dashboard/__init__.py` (empty), `kw_dashboard/config.py`
 - Test: `tests/test_config.py`
 
 **Interfaces:**
+
 - Consumes: Task 1's measured touch ranges and VT choice as defaults
 - Produces: `Config` dataclass with fields used by every later task; `load_config(path: str | None) -> Config`
 
@@ -333,10 +338,12 @@ git commit -m "feat: config module with touch calibration knobs"
 ## Task 3: HTTP helper
 
 **Files:**
+
 - Create: `kw_dashboard/sources/__init__.py` (empty), `kw_dashboard/sources/http.py`
 - Test: `tests/test_http.py`
 
 **Interfaces:**
+
 - Consumes: `Config`
 - Produces: `get_json(url, *, token=None, ca=None, timeout=8.0, params=None) -> dict` and `HttpError`
 
@@ -446,10 +453,12 @@ git commit -m "feat: stdlib HTTP GET helper"
 All PromQL below was verified against the live cluster on 2026-08-16 and returns data. Do not "improve" the temperature query: `node_hwmon_temp_celsius` returns 136 series including NVMe drive temperatures, so it reports disk temperature as CPU temperature. `node_thermal_zone_temp` with `max by(instance)` is correct.
 
 **Files:**
+
 - Create: `kw_dashboard/sources/prometheus.py`
 - Test: `tests/test_prometheus.py`, `tests/fixtures/prom_vector.json`
 
 **Interfaces:**
+
 - Consumes: `get_json` from Task 3
 - Produces: `PrometheusClient` with `query(promql) -> list[Sample]`, `query_all(dict[str,str]) -> dict[str, list[Sample]]`; `Sample(labels: dict, value: float)`; module constant `QUERIES: dict[str, str]`
 
@@ -583,10 +592,12 @@ git commit -m "feat: prometheus client with verified queries"
 ## Task 5: Kubernetes API client
 
 **Files:**
+
 - Create: `kw_dashboard/sources/kube.py`
 - Test: `tests/test_kube.py`
 
 **Interfaces:**
+
 - Consumes: `get_json`, `get_text` from Task 3
 - Produces: `KubeClient` with `list_nodes() -> list[NodeInfo]`, `node_ip_map() -> dict[str,str]`, `list_namespaces() -> list[str]`, `list_pods(ns=None) -> list[PodInfo]`, `recent_events(ns=None, limit=30) -> list[EventInfo]`, `pod_log(ns, pod, container=None, tail=200) -> list[str]`. Dataclasses `NodeInfo`, `PodInfo`, `EventInfo`.
 
@@ -827,10 +838,12 @@ git commit -m "feat: read-only kubernetes API client"
 ## Task 6: Alertmanager client
 
 **Files:**
+
 - Create: `kw_dashboard/sources/alerts.py`
 - Test: `tests/test_alerts.py`
 
 **Interfaces:**
+
 - Consumes: `get_json`
 - Produces: `AlertsClient.active() -> list[Alert]`; `Alert(name, severity, summary, starts_at)`; `SEVERITY_ORDER`; `rank_alerts(list[Alert]) -> list[Alert]`
 
@@ -951,10 +964,12 @@ git commit -m "feat: alertmanager client with severity ranking"
 ## Task 7: Snapshot model and collector thread
 
 **Files:**
+
 - Create: `kw_dashboard/model.py`, `kw_dashboard/collector.py`
 - Test: `tests/test_collector.py`
 
 **Interfaces:**
+
 - Consumes: `PrometheusClient`, `KubeClient`, `AlertsClient`, `Config`
 - Produces: `Snapshot` dataclass (fields: `cluster_cpu`, `cluster_mem`, `pods_running`, `nodes: list[NodeStat]`, `namespaces: list[NsStat]`, `alerts`, `events`, `updated: dict[str,float]`); `SourceState`; `Collector` with `.start()`, `.stop()`, `.snapshot() -> Snapshot`; `is_stale(snapshot, source, now, limit) -> bool`
 
@@ -1215,10 +1230,12 @@ git commit -m "feat: snapshot model and collector thread with per-source stalene
 ## Task 8: Navigation stack
 
 **Files:**
+
 - Create: `kw_dashboard/nav.py`
 - Test: `tests/test_nav.py`
 
 **Interfaces:**
+
 - Consumes: `Config`
 - Produces: `View(kind: str, params: dict)`, `Nav` with `.push(view)`, `.pop()`, `.current`, `.depth`, `.touch()`, `.tick(now)`, `.rotating`, `.page_index`; kinds are `"cluster"`, `"pulse"`, `"explore"`, `"alerts"`, `"namespace"`, `"pod"`, `"logs"`, `"node"`
 
@@ -1396,10 +1413,12 @@ git commit -m "feat: navigation stack with rotation, pause and idle reset"
 ## Task 9: Log stream with bounded ring buffer
 
 **Files:**
+
 - Create: `kw_dashboard/logstream.py`
 - Test: `tests/test_logstream.py`
 
 **Interfaces:**
+
 - Consumes: `KubeClient.pod_log`, `Config.log_ring_size`
 - Produces: `LogStream` with `.append_lines(list[str])`, `.lines`, `.follow`, `.scroll_up(n)`, `.jump_to_live()`, `.visible(rows)`; must never grow unbounded
 
@@ -1532,10 +1551,12 @@ git commit -m "feat: bounded log ring buffer with follow/pause"
 Sorting is pure logic and belongs in tests, separate from rendering.
 
 **Files:**
+
 - Create: `kw_dashboard/ui/__init__.py` (empty), `kw_dashboard/ui/sorting.py`
 - Test: `tests/test_explore_sort.py`
 
 **Interfaces:**
+
 - Consumes: `NsStat`, `PodInfo`
 - Produces: `sort_namespaces(list[NsStat]) -> list[NsStat]`, `sort_pods(list[PodInfo]) -> list[PodInfo]`, `fmt_bytes(float) -> str`
 
@@ -1621,10 +1642,12 @@ git commit -m "feat: explorer sorting and byte formatting"
 **REQUIRED:** Load the `dataviz` skill before writing `theme.py`. It governs palette construction, the colour formula and its validator, and accessibility checks. Do not invent hex values ad hoc.
 
 **Files:**
+
 - Create: `kw_dashboard/ui/theme.py`, `kw_dashboard/ui/widgets.py`
 - Test: `tests/test_theme.py`
 
 **Interfaces:**
+
 - Consumes: `Config`
 - Produces: `Theme` (colours `bg`, `fg`, `dim`, `accent`, `ok`, `warn`, `crit`, `panel`; fonts `huge`, `big`, `body`, `small`, `mono`), `state_color(pct) -> tuple`, and widget functions `draw_arc_gauge`, `draw_sparkline`, `draw_bar`, `draw_list_row`, `draw_header`, `draw_back_button`
 
@@ -1797,10 +1820,12 @@ git commit -m "feat: theme and drawing widgets"
 Getting `--windowed` and `--screenshot` working here is what makes every later page task testable without the physical panel. Do not defer them.
 
 **Files:**
+
 - Create: `kw_dashboard/app.py`, `kw_dashboard/__main__.py`
 - Create: `kw_dashboard/ui/pages/__init__.py` (empty)
 
 **Interfaces:**
+
 - Consumes: `Config`, `Collector`, `Nav`, `Theme`
 - Produces: `App` with `.run()`, `.render_once(snapshot) -> pygame.Surface`; `load_fonts() -> dict`; page render functions registered as `render(surface, snapshot, nav, fonts) -> list[tuple[pygame.Rect, callable]]` returning hit regions
 
@@ -2035,10 +2060,12 @@ git commit -m "feat: app shell with KMSDRM, windowed and screenshot modes"
 ## Task 13: Page 1 (CLUSTER) and node detail
 
 **Files:**
+
 - Create: `kw_dashboard/ui/pages/cluster.py`, `kw_dashboard/ui/pages/node.py`
 - Modify: `kw_dashboard/ui/pages/__init__.py` (add `registry`)
 
 **Interfaces:**
+
 - Consumes: `Snapshot`, `Nav`, widgets, `state_color`
 - Produces: `render(surface, snap, nav, fonts, app) -> list[tuple[Rect, callable]]` for kinds `"cluster"` and `"node"`; `registry: dict[str, callable]`
 
@@ -2190,10 +2217,12 @@ git commit -m "feat: cluster page and node detail view"
 ## Task 14: Page 4 (ALERTS) and page 2 (PULSE)
 
 **Files:**
+
 - Create: `kw_dashboard/ui/pages/alerts.py`, `kw_dashboard/ui/pages/pulse.py`
 - Modify: `kw_dashboard/ui/pages/__init__.py`
 
 **Interfaces:**
+
 - Consumes: `Snapshot.alerts`, `Snapshot.events`, `Snapshot.net_rx/net_tx`
 - Produces: `render(...)` for kinds `"alerts"` and `"pulse"`
 
@@ -2314,10 +2343,12 @@ git commit -m "feat: alerts and pulse pages"
 ## Task 15: Page 3 (EXPLORE) — namespace, pod and log views
 
 **Files:**
+
 - Create: `kw_dashboard/ui/pages/explore.py`, `kw_dashboard/ui/pages/logs.py`
 - Modify: `kw_dashboard/ui/pages/__init__.py`, `kw_dashboard/app.py` (add on-demand pod/log fetch hook)
 
 **Interfaces:**
+
 - Consumes: `sort_namespaces`, `sort_pods`, `fmt_bytes`, `LogStream`, `KubeClient.list_pods`, `KubeClient.pod_log`
 - Produces: `render(...)` for kinds `"explore"`, `"namespace"`, `"pod"`, `"logs"`; `App.fetch_pods(ns)` and `App.fetch_logs(ns, pod, container)` which run off-thread and cache into `App.view_cache`
 
@@ -2569,9 +2600,11 @@ git commit -m "feat: generic namespace/pod explorer with log view"
 Use the DRM result recorded in Task 1 to decide `User=`. If `piwi` acquired DRM master, keep `User=piwi`; if not, drop the `User=`/`Group=` lines so it runs as root and note the reason in the unit file.
 
 **Files:**
+
 - Create: `deploy/rbac.yaml`, `deploy/kw-dashboard.service`, `deploy/install.sh`
 
 **Interfaces:**
+
 - Consumes: everything above
 - Produces: a deployed, running unit on km01
 
@@ -2710,21 +2743,21 @@ git commit -m "feat: RBAC, systemd unit and install script"
 
 **Spec coverage check:**
 
-| Spec section | Covered by |
-|---|---|
-| 2 Target hardware | Task 1 (probe), Task 2 (720p defaults) |
-| 3 Rendering (pygame/KMSDRM) | Task 12 |
-| 4 Deployment (systemd, not pod) | Task 16 |
-| 5 Process architecture (2 threads) | Task 7 |
-| 6 Data sources + auth + staleness | Tasks 3-7, 16 (RBAC) |
-| 6 Logs via k8s API, Loki optional | Task 5 (`pod_log`), Task 9, Task 15. Loki left unimplemented behind `loki_enabled=False` — it is spec'd as optional and follows the API path. |
-| 7 Pages 1-4 + alert pre-emption | Tasks 13, 14, 15; pre-emption in Task 12 `_check_preemption` + Task 8 `preempt_for_alert` |
-| 8 Navigation, drill-down, log legibility | Tasks 8, 11 (`FONT_SIZES`), 15 |
-| 9 Visual direction | Task 11 (dataviz skill required) |
-| 10 Error handling | Task 7 (per-source `_mark`), Task 16 (`Restart=always`) |
-| 11 Testing | Tasks 2-11 unit tests; Task 12 screenshot mode; Task 16 on-device smoke |
-| 12 Risks | Task 1 (all three), Task 16 step 5 (calibration) |
-| 13 Out of scope | No mutating call exists anywhere; `kube.py` exposes GET only |
+| Spec section                             | Covered by                                                                                                                                    |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2 Target hardware                        | Task 1 (probe), Task 2 (720p defaults)                                                                                                        |
+| 3 Rendering (pygame/KMSDRM)              | Task 12                                                                                                                                       |
+| 4 Deployment (systemd, not pod)          | Task 16                                                                                                                                       |
+| 5 Process architecture (2 threads)       | Task 7                                                                                                                                        |
+| 6 Data sources + auth + staleness        | Tasks 3-7, 16 (RBAC)                                                                                                                          |
+| 6 Logs via k8s API, Loki optional        | Task 5 (`pod_log`), Task 9, Task 15. Loki left unimplemented behind `loki_enabled=False` — it is spec'd as optional and follows the API path. |
+| 7 Pages 1-4 + alert pre-emption          | Tasks 13, 14, 15; pre-emption in Task 12 `_check_preemption` + Task 8 `preempt_for_alert`                                                     |
+| 8 Navigation, drill-down, log legibility | Tasks 8, 11 (`FONT_SIZES`), 15                                                                                                                |
+| 9 Visual direction                       | Task 11 (dataviz skill required)                                                                                                              |
+| 10 Error handling                        | Task 7 (per-source `_mark`), Task 16 (`Restart=always`)                                                                                       |
+| 11 Testing                               | Tasks 2-11 unit tests; Task 12 screenshot mode; Task 16 on-device smoke                                                                       |
+| 12 Risks                                 | Task 1 (all three), Task 16 step 5 (calibration)                                                                                              |
+| 13 Out of scope                          | No mutating call exists anywhere; `kube.py` exposes GET only                                                                                  |
 
 **Deferred deliberately:** live log `follow=true` streaming (Task 15 fetches a
 bounded tail on view open and on refresh; the `LogStream` follow machinery from

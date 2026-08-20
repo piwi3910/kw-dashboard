@@ -1,4 +1,5 @@
 """Pure functions over (timestamp, value) point series. No I/O."""
+
 from __future__ import annotations
 from dataclasses import dataclass
 
@@ -18,8 +19,9 @@ def stats(points) -> SeriesStats:
     if not points:
         return SeriesStats(min=0.0, max=0.0, mean=0.0, last=0.0)
     vals = [v for _, v in points]
-    return SeriesStats(min=min(vals), max=max(vals),
-                        mean=sum(vals) / len(vals), last=vals[-1])
+    return SeriesStats(
+        min=min(vals), max=max(vals), mean=sum(vals) / len(vals), last=vals[-1]
+    )
 
 
 def downsample(points, max_points: int) -> tuple:
@@ -56,7 +58,11 @@ def nice_axis(lo: float, hi: float, ticks: int = 5) -> tuple[float, ...]:
     if span <= 0:
         span = abs(lo) if lo else 1.0
     raw_step = span / max(ticks - 1, 1)
-    magnitude = 10 ** (len(str(int(raw_step))) - 1) if raw_step >= 1 else _small_magnitude(raw_step)
+    magnitude = (
+        10 ** (len(str(int(raw_step))) - 1)
+        if raw_step >= 1
+        else _small_magnitude(raw_step)
+    )
     for m in (1, 2, 2.5, 5, 10):
         step = m * magnitude
         if step >= raw_step:

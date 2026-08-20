@@ -1,4 +1,5 @@
 """Read-only k3s API client. GET only — no mutating verb appears in this file."""
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -62,18 +63,35 @@ def _ki_to_bytes(v: str) -> float:
 def parse_nodes(payload: dict) -> list[NodeInfo]:
     out = []
     for it in payload.get("items", []):
-        st, spec, meta = it.get("status", {}), it.get("spec", {}), it.get("metadata", {})
-        ip = next((a["address"] for a in st.get("addresses", [])
-                   if a.get("type") == "InternalIP"), "")
-        ready = any(c.get("type") == "Ready" and c.get("status") == "True"
-                    for c in st.get("conditions", []))
+        st, spec, meta = (
+            it.get("status", {}),
+            it.get("spec", {}),
+            it.get("metadata", {}),
+        )
+        ip = next(
+            (
+                a["address"]
+                for a in st.get("addresses", [])
+                if a.get("type") == "InternalIP"
+            ),
+            "",
+        )
+        ready = any(
+            c.get("type") == "Ready" and c.get("status") == "True"
+            for c in st.get("conditions", [])
+        )
         cap = st.get("capacity", {})
-        out.append(NodeInfo(
-            name=meta.get("name", ""), internal_ip=ip, ready=ready,
-            cordoned=bool(spec.get("unschedulable", False)),
-            cpu_capacity=float(cap.get("cpu", 0) or 0),
-            mem_capacity_bytes=_ki_to_bytes(cap.get("memory", "0")),
-            pod_capacity=int(cap.get("pods", 0) or 0)))
+        out.append(
+            NodeInfo(
+                name=meta.get("name", ""),
+                internal_ip=ip,
+                ready=ready,
+                cordoned=bool(spec.get("unschedulable", False)),
+                cpu_capacity=float(cap.get("cpu", 0) or 0),
+                mem_capacity_bytes=_ki_to_bytes(cap.get("memory", "0")),
+                pod_capacity=int(cap.get("pods", 0) or 0),
+            )
+        )
     return out
 
 
@@ -85,16 +103,25 @@ def build_ip_map(nodes: list[NodeInfo], port: int = 9100) -> dict[str, str]:
 def parse_pods(payload: dict) -> list[PodInfo]:
     out = []
     for it in payload.get("items", []):
-        meta, spec, st = it.get("metadata", {}), it.get("spec", {}), it.get("status", {})
+        meta, spec, st = (
+            it.get("metadata", {}),
+            it.get("spec", {}),
+            it.get("status", {}),
+        )
         cs = st.get("containerStatuses", []) or []
         containers = [c.get("name", "") for c in spec.get("containers", [])]
-        out.append(PodInfo(
-            name=meta.get("name", ""), namespace=meta.get("namespace", ""),
-            node=spec.get("nodeName", ""), phase=st.get("phase", "Unknown"),
-            ready=sum(1 for c in cs if c.get("ready")),
-            total=len(containers) or len(cs),
-            restarts=sum(int(c.get("restartCount", 0)) for c in cs),
-            containers=containers))
+        out.append(
+            PodInfo(
+                name=meta.get("name", ""),
+                namespace=meta.get("namespace", ""),
+                node=spec.get("nodeName", ""),
+                phase=st.get("phase", "Unknown"),
+                ready=sum(1 for c in cs if c.get("ready")),
+                total=len(containers) or len(cs),
+                restarts=sum(int(c.get("restartCount", 0)) for c in cs),
+                containers=containers,
+            )
+        )
     return out
 
 
@@ -111,11 +138,16 @@ def parse_events(payload: dict) -> list[EventInfo]:
     out = []
     for it in payload.get("items", []):
         io = it.get("involvedObject", {})
-        out.append(EventInfo(
-            reason=it.get("reason", ""), message=it.get("message", ""),
-            obj=io.get("name", ""), namespace=io.get("namespace", ""),
-            warning=it.get("type") == "Warning",
-            ts=_parse_ts(it.get("lastTimestamp") or it.get("eventTime"))))
+        out.append(
+            EventInfo(
+                reason=it.get("reason", ""),
+                message=it.get("message", ""),
+                obj=io.get("name", ""),
+                namespace=io.get("namespace", ""),
+                warning=it.get("type") == "Warning",
+                ts=_parse_ts(it.get("lastTimestamp") or it.get("eventTime")),
+            )
+        )
     out.sort(key=lambda e: e.ts, reverse=True)
     return out
 
@@ -126,8 +158,13 @@ class KubeClient:
         self.token, self.ca, self.timeout = token, ca, timeout
 
     def _get(self, path: str, params: dict | None = None) -> dict:
-        return get_json(f"{self.base}{path}", token=self.token, ca=self.ca,
-                        timeout=self.timeout, params=params)
+        return get_json(
+            f"{self.base}{path}",
+            token=self.token,
+            ca=self.ca,
+            timeout=self.timeout,
+            params=params,
+        )
 
     def list_nodes(self) -> list[NodeInfo]:
         return parse_nodes(self._get("/api/v1/nodes"))
@@ -140,15 +177,25 @@ class KubeClient:
         path = f"/api/v1/namespaces/{namespace}/pods" if namespace else "/api/v1/pods"
         return parse_pods(self._get(path))
 
-    def recent_events(self, namespace: str | None = None, limit: int = 30) -> list[EventInfo]:
-        path = f"/api/v1/namespaces/{namespace}/events" if namespace else "/api/v1/events"
+    def recent_events(
+        self, namespace: str | None = None, limit: int = 30
+    ) -> list[EventInfo]:
+        path = (
+            f"/api/v1/namespaces/{namespace}/events" if namespace else "/api/v1/events"
+        )
         return parse_events(self._get(path, {"limit": limit}))[:limit]
 
-    def pod_log(self, namespace: str, pod: str, container: str | None = None,
-                tail: int = 200) -> list[str]:
+    def pod_log(
+        self, namespace: str, pod: str, container: str | None = None, tail: int = 200
+    ) -> list[str]:
         params = {"tailLines": tail, "timestamps": "true"}
         if container:
             params["container"] = container
-        text = get_text(f"{self.base}/api/v1/namespaces/{namespace}/pods/{pod}/log",
-                        token=self.token, ca=self.ca, timeout=self.timeout, params=params)
+        text = get_text(
+            f"{self.base}/api/v1/namespaces/{namespace}/pods/{pod}/log",
+            token=self.token,
+            ca=self.ca,
+            timeout=self.timeout,
+            params=params,
+        )
         return [ln for ln in text.splitlines() if ln]
