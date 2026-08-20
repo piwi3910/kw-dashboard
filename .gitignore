@@ -4,3 +4,16 @@ __pycache__/
 .superpowers/
 
 .procoder/state/
+
+# AI agent tool configs (project-specific tools go under .kilo/)
+.agents/
+.clinerules/
+.codex/
+.cursor/
+.kiro/
+.qoder/
+.roo/
+.windsurf/
+
+# Duplicate/legacy Kilo paths - use .kilo/ instead
+.kilocode/
